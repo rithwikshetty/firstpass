@@ -1,0 +1,92 @@
+@import "tailwindcss";
+
+/* ── Design tokens — calm, flat, editorial ── */
+@theme {
+  --color-canvas: #f4f2ec;
+  --color-surface: #fbfaf6;
+  --color-ink: #201d18;
+  --color-ink-70: #5a554b;
+  --color-ink-45: #8c867a;
+  --color-ink-25: #b6b0a3;
+  --color-line: #e2ddd2;
+  --color-line-soft: #ebe7dd;
+  --color-claude: #bc6b45;
+  --color-gpt: #34917a;
+  --color-warn: #a87b33;
+  --color-good: #34917a;
+
+  --font-sans: var(--font-hanken), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+}
+
+@layer base {
+  html {
+    font-size: 16px;
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    font-family: var(--font-sans);
+    background: var(--color-canvas);
+    color: var(--color-ink);
+    letter-spacing: -0.003em;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--color-claude) 22%, transparent);
+  }
+}
+
+/* ── Minimal motion ── */
+@keyframes fp-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes fp-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.fp-rise {
+  animation: fp-rise 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.fp-fade {
+  animation: fp-fade 0.3s ease both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fp-rise,
+  .fp-fade {
+    animation: none;
+  }
+}
+
+/* ── Subtle scrollbars for the side-by-side comparison panes ── */
+.fp-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-ink-25) transparent;
+}
+.fp-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.fp-scroll::-webkit-scrollbar-thumb {
+  background: var(--color-line);
+  border-radius: 9999px;
+}
+.fp-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--color-ink-25);
+}
+.fp-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}

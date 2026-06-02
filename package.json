@@ -1,0 +1,55 @@
+{
+  "name": "firstpass",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rithwikshetty/firstpass.git"
+  },
+  "engines": {
+    "node": "24.x",
+    "npm": ">=10"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "prebuild": "node scripts/clean-next.mjs",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "env:check": "node scripts/check-env.mjs",
+    "scan:artifact": "node scripts/check-release-artifact.mjs",
+    "release:check": "npm run env:check && npm run lint && npm run test && npm audit --omit=dev --audit-level=moderate && npm run build && npm run scan:artifact"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.100.1",
+    "@napi-rs/canvas": "^1.0.0",
+    "mammoth": "^1.12.0",
+    "next": "^16.2.7",
+    "openai": "^6.41.0",
+    "pdf-parse": "^2.4.5",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.0",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/node": "^25.9.1",
+    "@types/react": "^19.2.16",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.2",
+    "eslint": "^9.39.4",
+    "eslint-config-next": "^16.2.7",
+    "jsdom": "^29.1.1",
+    "tailwindcss": "^4.3.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
+  },
+  "overrides": {
+    "postcss": "8.5.15"
+  }
+}
