@@ -40,19 +40,28 @@ function makeReq(
   } as unknown as NextRequest;
 }
 
-function makeBody(jobDescription = "We need TypeScript experience.") {
-  const values = new Map<string, FormDataEntryValue>([
-    [
-      "cv",
-      {
-        name: "cv.pdf",
-        size: 4,
-        arrayBuffer: async () => new ArrayBuffer(4),
-      } as File,
-    ],
-    ["jobDescription", jobDescription],
-  ]);
-  return { get: (name: string) => values.get(name) ?? null } as FormData;
+function uploadFile(name: string): File {
+  return {
+    name,
+    size: 4,
+    arrayBuffer: async () => new ArrayBuffer(4),
+  } as File;
+}
+
+function makeBody(
+  jobDescription = "We need TypeScript experience.",
+  jobFiles: File[] = [],
+  cvFiles: File[] = [uploadFile("cv.pdf")],
+) {
+  return {
+    get: (name: string) => (name === "jobDescription" ? jobDescription : null),
+    getAll: (name: string) =>
+      name === "cv"
+        ? cvFiles
+        : name === "jobFile"
+          ? jobFiles
+          : ([] as FormDataEntryValue[]),
+  } as unknown as FormData;
 }
 
 const reviewResult: ReviewResult = {
@@ -133,5 +142,60 @@ describe("/api/review gating", () => {
     expect(res.status).toBe(200);
     expect(payload.data).toEqual(reviewResult);
     expect(vi.mocked(reviewWithClaude)).toHaveBeenCalledOnce();
+  });
+
+  it("accepts a job description supplied only as an uploaded file", async () => {
+    vi.mocked(extractText).mockResolvedValue("Senior engineer, TypeScript.");
+    vi.mocked(reviewWithClaude).mockResolvedValue(reviewResult);
+
+    const jobFile = {
+      name: "role.pdf",
+      size: 8,
+      arrayBuffer: async () => new ArrayBuffer(8),
+    } as File;
+
+    const res = await POST(
+      makeReq("?model=claude", {
+        token: sessionToken()!,
+        body: makeBody("", [jobFile]),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(reviewWithClaude)).toHaveBeenCalledOnce();
+    // Parsed once for the job-description file and once for the CV.
+    expect(vi.mocked(extractText)).toHaveBeenCalledTimes(2);
+  });
+
+  it("accepts a CV split across multiple uploaded files", async () => {
+    vi.mocked(extractText).mockResolvedValue("CV text");
+    vi.mocked(reviewWithClaude).mockResolvedValue(reviewResult);
+
+    const res = await POST(
+      makeReq("?model=claude", {
+        token: sessionToken()!,
+        body: makeBody("We need TypeScript experience.", [], [
+          uploadFile("cv.pdf"),
+          uploadFile("cover-letter.docx"),
+        ]),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(reviewWithClaude)).toHaveBeenCalledOnce();
+    // Parsed once per CV file (the job description here is pasted text).
+    expect(vi.mocked(extractText)).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects a request with neither a job description nor a file", async () => {
+    const res = await POST(
+      makeReq("?model=claude", {
+        token: sessionToken()!,
+        body: makeBody(""),
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    expect(vi.mocked(reviewWithClaude)).not.toHaveBeenCalled();
   });
 });

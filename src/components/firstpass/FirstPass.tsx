@@ -32,8 +32,9 @@ export function FirstPass() {
   const [authLoading, setAuthLoading] = useState(false);
 
   // Input
-  const [file, setFile] = useState<File | null>(null);
+  const [cvFiles, setCvFiles] = useState<File[]>([]);
   const [jobDescription, setJobDescription] = useState("");
+  const [jobFiles, setJobFiles] = useState<File[]>([]);
 
   // Results
   const [results, setResults] = useState<Record<ModelKey, ModelResult>>({
@@ -81,7 +82,8 @@ export function FirstPass() {
   }, [password]);
 
   const handleReview = useCallback(async () => {
-    if (!file || !jobDescription.trim()) return;
+    if (cvFiles.length === 0 || (!jobDescription.trim() && jobFiles.length === 0))
+      return;
 
     setResults({
       claude: { data: null, error: null, loading: true },
@@ -92,8 +94,9 @@ export function FirstPass() {
 
     const fetchModel = async (model: ModelKey): Promise<FetchOutcome> => {
       const body = new FormData();
-      body.append("cv", file);
+      cvFiles.forEach((cvFile) => body.append("cv", cvFile));
       body.append("jobDescription", jobDescription);
+      jobFiles.forEach((jobFile) => body.append("jobFile", jobFile));
 
       try {
         const res = await fetch(`/api/review?model=${model}`, {
@@ -137,8 +140,9 @@ export function FirstPass() {
     if (claudeOut?.data && gptOut?.data) {
       setConsolidation({ data: null, error: null, loading: true });
       const body = new FormData();
-      body.append("cv", file);
+      cvFiles.forEach((cvFile) => body.append("cv", cvFile));
       body.append("jobDescription", jobDescription);
+      jobFiles.forEach((jobFile) => body.append("jobFile", jobFile));
       body.append("claude", JSON.stringify(claudeOut.data));
       body.append("gpt", JSON.stringify(gptOut.data));
       fetch("/api/consolidate", { method: "POST", body })
@@ -154,13 +158,22 @@ export function FirstPass() {
           setConsolidation({ data: null, error: "Couldn’t summarise.", loading: false }),
         );
     }
-  }, [file, jobDescription]);
+  }, [cvFiles, jobDescription, jobFiles]);
 
   const handleReset = useCallback(() => {
     setResults({ claude: emptyResult, gpt: emptyResult });
     setConsolidation(emptyConsolidation);
     setPhase("input");
   }, []);
+
+  // What to call the CV in the analyzing/results header: the filename when it's
+  // a single document, otherwise a count.
+  const cvLabel =
+    cvFiles.length === 0
+      ? "your CV"
+      : cvFiles.length === 1
+        ? cvFiles[0].name
+        : `${cvFiles.length} documents`;
 
   if (phase === "booting") {
     return <div className="min-h-screen bg-canvas" />;
@@ -179,14 +192,14 @@ export function FirstPass() {
   }
 
   if (phase === "analyzing") {
-    return <Analyzing fileName={file?.name ?? "your CV"} />;
+    return <Analyzing fileName={cvLabel} />;
   }
 
   if (phase === "results") {
     return (
       <Results
         results={results}
-        fileName={file?.name ?? "your CV"}
+        fileName={cvLabel}
         onReset={handleReset}
         consolidation={consolidation}
       />
@@ -195,10 +208,12 @@ export function FirstPass() {
 
   return (
     <InputScreen
-      file={file}
-      onFile={setFile}
+      cvFiles={cvFiles}
+      onCvFilesChange={setCvFiles}
       jobDescription={jobDescription}
       onJobDescriptionChange={setJobDescription}
+      jobFiles={jobFiles}
+      onJobFilesChange={setJobFiles}
       onReview={handleReview}
     />
   );

@@ -1,17 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
-import { extractText } from "@/lib/parser";
 import { buildConsolidationPrompt } from "@/lib/consolidator";
 import { consolidateWithClaude } from "@/lib/models/anthropic";
 import { SESSION_COOKIE, isAuthorized } from "@/lib/auth";
 import type { ReviewResult } from "@/lib/schema";
 import {
   BudgetError,
-  MAX_CV_TEXT_CHARS,
+  MAX_CV_FILES,
+  MAX_CV_FILE_BYTES,
+  MAX_JD_FILES,
   MAX_JOB_DESCRIPTION_CHARS,
+  MAX_JOB_FILE_BYTES,
   MAX_REVIEW_JSON_CHARS,
   assertPromptBudget,
   assertTextBudget,
 } from "@/lib/budgets";
+import { UploadError, resolveCv, resolveJobDescription } from "@/lib/uploads";
 import {
   rejectCrossOrigin,
   rejectOversizedContentLength,
@@ -19,22 +22,12 @@ import {
 
 export const runtime = "nodejs";
 
-const MAX_CV_BYTES = 8 * 1024 * 1024; // 8 MB
 const MAX_CONSOLIDATE_REQUEST_BYTES =
-  MAX_CV_BYTES + MAX_JOB_DESCRIPTION_CHARS + MAX_REVIEW_JSON_CHARS * 2 + 512 * 1024;
-
-function isUploadedFile(value: FormDataEntryValue | null): value is File {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "arrayBuffer" in value &&
-    "name" in value &&
-    "size" in value &&
-    typeof value.arrayBuffer === "function" &&
-    typeof value.name === "string" &&
-    typeof value.size === "number"
-  );
-}
+  MAX_CV_FILES * MAX_CV_FILE_BYTES +
+  MAX_JD_FILES * MAX_JOB_FILE_BYTES +
+  MAX_JOB_DESCRIPTION_CHARS +
+  MAX_REVIEW_JSON_CHARS * 2 +
+  512 * 1024;
 
 /**
  * Consolidate the two model reviews the client already has into one honest
@@ -64,39 +57,35 @@ export async function POST(request: NextRequest) {
   if (oversized) return oversized;
 
   const formData = await request.formData();
-  const file = formData.get("cv");
-  const jobDescription = formData.get("jobDescription");
   const claudeRaw = formData.get("claude");
   const gptRaw = formData.get("gpt");
 
-  if (
-    !isUploadedFile(file) ||
-    typeof jobDescription !== "string" ||
-    !jobDescription.trim() ||
-    typeof claudeRaw !== "string" ||
-    typeof gptRaw !== "string"
-  ) {
+  if (typeof claudeRaw !== "string" || typeof gptRaw !== "string") {
     return NextResponse.json(
       { error: "A CV file, a job description, and both reviews are required." },
       { status: 400 },
     );
   }
-  if (file.size > MAX_CV_BYTES) {
-    return NextResponse.json(
-      { error: "That CV is too large — please keep it under 8 MB." },
-      { status: 413 },
-    );
-  }
   try {
-    assertTextBudget(
-      "Job description",
-      jobDescription,
-      MAX_JOB_DESCRIPTION_CHARS,
-    );
     assertTextBudget("Claude review", claudeRaw, MAX_REVIEW_JSON_CHARS);
     assertTextBudget("GPT review", gptRaw, MAX_REVIEW_JSON_CHARS);
   } catch (err) {
     if (err instanceof BudgetError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
+    throw err;
+  }
+
+  // Rebuild the same inputs the review used: pasted text and/or the re-sent
+  // files for the job description, plus the CV document(s) — all parsed and
+  // combined server-side.
+  let jobDescription: string;
+  let cvText: string;
+  try {
+    jobDescription = await resolveJobDescription(formData);
+    cvText = await resolveCv(formData);
+  } catch (err) {
+    if (err instanceof UploadError) {
       return NextResponse.json({ error: err.message }, { status: err.status });
     }
     throw err;
@@ -112,26 +101,6 @@ export async function POST(request: NextRequest) {
       { error: "Could not read the model reviews." },
       { status: 400 },
     );
-  }
-
-  let cvText: string;
-  try {
-    const buffer = Buffer.from(await file.arrayBuffer());
-    cvText = await extractText(buffer, file.name);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "Unknown parse error";
-    return NextResponse.json(
-      { error: `Could not read that CV: ${msg}` },
-      { status: 400 },
-    );
-  }
-  try {
-    assertTextBudget("Extracted CV text", cvText, MAX_CV_TEXT_CHARS);
-  } catch (err) {
-    if (err instanceof BudgetError) {
-      return NextResponse.json({ error: err.message }, { status: err.status });
-    }
-    throw err;
   }
 
   const { system, user } = buildConsolidationPrompt(

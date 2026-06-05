@@ -48,29 +48,41 @@ const reviewResult: ReviewResult = {
   suggestions: ["Keep relevant experience prominent."],
 };
 
+function uploadFile(name: string): File {
+  return {
+    name,
+    size: 4,
+    arrayBuffer: async () => new ArrayBuffer(4),
+  } as File;
+}
+
 function makeBody({
   jobDescription = "We need TypeScript experience.",
+  jobFiles = [],
+  cvFiles = [uploadFile("cv.pdf")],
   claude = JSON.stringify(reviewResult),
   gpt = JSON.stringify(reviewResult),
 }: {
   jobDescription?: string;
+  jobFiles?: File[];
+  cvFiles?: File[];
   claude?: string;
   gpt?: string;
 } = {}) {
   const values = new Map<string, FormDataEntryValue>([
-    [
-      "cv",
-      {
-        name: "cv.pdf",
-        size: 4,
-        arrayBuffer: async () => new ArrayBuffer(4),
-      } as File,
-    ],
     ["jobDescription", jobDescription],
     ["claude", claude],
     ["gpt", gpt],
   ]);
-  return { get: (name: string) => values.get(name) ?? null } as FormData;
+  return {
+    get: (name: string) => values.get(name) ?? null,
+    getAll: (name: string) =>
+      name === "cv"
+        ? cvFiles
+        : name === "jobFile"
+          ? jobFiles
+          : ([] as FormDataEntryValue[]),
+  } as unknown as FormData;
 }
 
 describe("/api/consolidate gating", () => {

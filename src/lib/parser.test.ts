@@ -37,7 +37,7 @@ import {
   MAX_PDF_PAGES,
   extractText,
 } from "./parser";
-import { MAX_CV_TEXT_CHARS } from "./budgets";
+import { BudgetError, MAX_CV_TEXT_CHARS } from "./budgets";
 
 function pdfBuffer() {
   return Buffer.from("%PDF-1.7\nbody");
@@ -89,8 +89,8 @@ describe("extractText parser budgets", () => {
   it("rejects extracted text over the character budget", async () => {
     parserMocks.pdfText = "x".repeat(MAX_CV_TEXT_CHARS + 1);
 
-    await expect(extractText(pdfBuffer(), "cv.pdf")).rejects.toThrow(
-      "Extracted CV text is too large",
+    await expect(extractText(pdfBuffer(), "cv.pdf")).rejects.toBeInstanceOf(
+      BudgetError,
     );
     expect(parserMocks.pdfDestroy).toHaveBeenCalledOnce();
   });

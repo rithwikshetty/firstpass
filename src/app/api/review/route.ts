@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { extractText } from "@/lib/parser";
 import { buildRubricPrompt } from "@/lib/rubric";
 import { reviewWithClaude } from "@/lib/models/anthropic";
 import { reviewWithGPT } from "@/lib/models/openai";
 import { SESSION_COOKIE, isAuthorized } from "@/lib/auth";
 import {
   BudgetError,
-  MAX_CV_TEXT_CHARS,
-  MAX_JOB_DESCRIPTION_CHARS,
+  MAX_CV_FILES,
+  MAX_CV_FILE_BYTES,
+  MAX_JD_FILES,
+  MAX_JOB_FILE_BYTES,
   assertPromptBudget,
-  assertTextBudget,
 } from "@/lib/budgets";
+import { UploadError, resolveCv, resolveJobDescription } from "@/lib/uploads";
 import {
   rejectCrossOrigin,
   rejectOversizedContentLength,
@@ -25,21 +26,10 @@ const MODELS = {
 
 type ModelName = keyof typeof MODELS;
 
-const MAX_CV_BYTES = 8 * 1024 * 1024; // 8 MB
-const MAX_REVIEW_REQUEST_BYTES = MAX_CV_BYTES + 512 * 1024;
-
-function isUploadedFile(value: FormDataEntryValue | null): value is File {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "arrayBuffer" in value &&
-    "name" in value &&
-    "size" in value &&
-    typeof value.arrayBuffer === "function" &&
-    typeof value.name === "string" &&
-    typeof value.size === "number"
-  );
-}
+const MAX_REVIEW_REQUEST_BYTES =
+  MAX_CV_FILES * MAX_CV_FILE_BYTES +
+  MAX_JD_FILES * MAX_JOB_FILE_BYTES +
+  512 * 1024;
 
 export async function POST(request: NextRequest) {
   if (!isAuthorized(request.cookies.get(SESSION_COOKIE)?.value)) {
@@ -72,63 +62,20 @@ export async function POST(request: NextRequest) {
   if (oversized) return oversized;
 
   const formData = await request.formData();
-  const file = formData.get("cv");
-  const jobDescription = formData.get("jobDescription");
 
-  if (
-    !isUploadedFile(file) ||
-    typeof jobDescription !== "string" ||
-    !jobDescription.trim()
-  ) {
-    return NextResponse.json(
-      { error: "A CV file and a job description are both required." },
-      { status: 400 },
-    );
-  }
-  if (file.size > MAX_CV_BYTES) {
-    return NextResponse.json(
-      { error: "That CV is too large — please keep it under 8 MB." },
-      { status: 413 },
-    );
-  }
-  try {
-    assertTextBudget(
-      "Job description",
-      jobDescription,
-      MAX_JOB_DESCRIPTION_CHARS,
-    );
-  } catch (err) {
-    if (err instanceof BudgetError) {
-      return NextResponse.json({ error: err.message }, { status: err.status });
-    }
-    throw err;
-  }
-
+  // Both sections accept one or more PDF/DOCX uploads (the job description may
+  // also be pasted). Each file is parsed server-side and combined. Resolve the
+  // job description first so we never parse the CV for an already-invalid request.
+  let jobDescription: string;
   let cvText: string;
   try {
-    const buffer = Buffer.from(await file.arrayBuffer());
-    cvText = await extractText(buffer, file.name);
+    jobDescription = await resolveJobDescription(formData);
+    cvText = await resolveCv(formData);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Unknown parse error";
-    return NextResponse.json(
-      { error: `Could not read that CV: ${msg}` },
-      { status: 400 },
-    );
-  }
-  try {
-    assertTextBudget("Extracted CV text", cvText, MAX_CV_TEXT_CHARS);
-  } catch (err) {
-    if (err instanceof BudgetError) {
+    if (err instanceof UploadError) {
       return NextResponse.json({ error: err.message }, { status: err.status });
     }
     throw err;
-  }
-
-  if (!cvText.trim()) {
-    return NextResponse.json(
-      { error: "No text found — the file may be image-based or empty." },
-      { status: 400 },
-    );
   }
 
   const { system, user } = buildRubricPrompt(cvText, jobDescription);

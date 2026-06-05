@@ -1,6 +1,6 @@
 import { PDFParse } from "pdf-parse";
 import mammoth from "mammoth";
-import { MAX_CV_TEXT_CHARS } from "./budgets";
+import { MAX_CV_TEXT_CHARS, assertTextBudget } from "./budgets";
 
 export const MAX_PDF_PAGES = 20;
 export const PARSER_TIMEOUT_MS = 10_000;
@@ -20,12 +20,12 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   ]);
 }
 
-function assertExtractedTextBudget(text: string) {
-  if (text.length > MAX_CV_TEXT_CHARS) {
-    throw new Error(
-      `Extracted CV text is too large. Please keep it under ${MAX_CV_TEXT_CHARS.toLocaleString()} characters.`,
-    );
-  }
+function assertExtractedTextBudget(
+  text: string,
+  label: string,
+  maxChars: number,
+) {
+  assertTextBudget(label, text, maxChars);
 }
 
 function assertPdfSignature(buffer: Buffer) {
@@ -95,9 +95,20 @@ function assertDocxZipBudget(buffer: Buffer) {
   }
 }
 
+export interface ExtractTextOptions {
+  /** Label used in the "too large" message — defaults to CV wording. */
+  label?: string;
+  /** Max extracted characters before rejecting — defaults to the CV budget. */
+  maxChars?: number;
+}
+
 export async function extractText(
   buffer: Buffer,
-  filename: string
+  filename: string,
+  {
+    label = "Extracted CV text",
+    maxChars = MAX_CV_TEXT_CHARS,
+  }: ExtractTextOptions = {},
 ): Promise<string> {
   const lower = filename.toLowerCase();
 
@@ -119,7 +130,7 @@ export async function extractText(
         pdf.getText({ first: MAX_PDF_PAGES, parseHyperlinks: false }),
         PARSER_TIMEOUT_MS,
       );
-      assertExtractedTextBudget(result.text);
+      assertExtractedTextBudget(result.text, label, maxChars);
       return result.text.trim();
     } finally {
       await pdf.destroy().catch(() => undefined);
@@ -133,7 +144,7 @@ export async function extractText(
       mammoth.extractRawText({ buffer }),
       PARSER_TIMEOUT_MS,
     );
-    assertExtractedTextBudget(result.value);
+    assertExtractedTextBudget(result.value, label, maxChars);
     return result.value.trim();
   }
 

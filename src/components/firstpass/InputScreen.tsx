@@ -1,12 +1,15 @@
-import { Dropzone } from "./Dropzone";
+import { FileUpload } from "./FileUpload";
 import { Brand } from "./ui";
 import { FileIcon, JobIcon, SearchIcon } from "./ui";
+import { MAX_CV_FILES, MAX_JD_FILES } from "@/lib/budgets";
 
 interface InputScreenProps {
-  file: File | null;
-  onFile: (file: File) => void;
+  cvFiles: File[];
+  onCvFilesChange: (files: File[]) => void;
   jobDescription: string;
   onJobDescriptionChange: (value: string) => void;
+  jobFiles: File[];
+  onJobFilesChange: (files: File[]) => void;
   onReview: () => void;
 }
 
@@ -14,13 +17,17 @@ const labelClass =
   "mb-3 flex items-center gap-2 text-[0.78rem] font-semibold tracking-[0.04em] text-ink-70";
 
 export function InputScreen({
-  file,
-  onFile,
+  cvFiles,
+  onCvFilesChange,
   jobDescription,
   onJobDescriptionChange,
+  jobFiles,
+  onJobFilesChange,
   onReview,
 }: InputScreenProps) {
-  const ready = Boolean(file) && jobDescription.trim().length > 0;
+  const ready =
+    cvFiles.length > 0 &&
+    (jobDescription.trim().length > 0 || jobFiles.length > 0);
 
   return (
     <div className="fp-fade">
@@ -45,9 +52,14 @@ export function InputScreen({
 
         <div className="mb-6">
           <div className={labelClass}>
-            <FileIcon className="opacity-45" /> Your CV
+            <FileIcon className="opacity-45" /> Your CV &amp; related documents
           </div>
-          <Dropzone file={file} onFile={onFile} />
+          <FileUpload
+            files={cvFiles}
+            onFilesChange={onCvFilesChange}
+            max={MAX_CV_FILES}
+            prompt="Drop your CV, or click to browse"
+          />
         </div>
 
         <div className="mb-6">
@@ -59,6 +71,17 @@ export function InputScreen({
             placeholder="Paste the full job description here…"
             value={jobDescription}
             onChange={(e) => onJobDescriptionChange(e.target.value)}
+          />
+          <div className="my-3 flex items-center gap-3 text-[0.7rem] font-medium uppercase tracking-[0.14em] text-ink-25">
+            <span className="h-px flex-1 bg-line" />
+            or attach files
+            <span className="h-px flex-1 bg-line" />
+          </div>
+          <FileUpload
+            files={jobFiles}
+            onFilesChange={onJobFilesChange}
+            max={MAX_JD_FILES}
+            prompt="Attach the listing, or click to browse"
           />
         </div>
 
