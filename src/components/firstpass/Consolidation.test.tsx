@@ -11,6 +11,7 @@ function plan(overrides: Partial<ConsolidationPlan> = {}): ConsolidationPlan {
       scores: "Claude 82 · GPT 76",
       agreement_note: "Both agree it's a strong match.",
     },
+    lead_with: [],
     fix_first: [
       { action: "Name RAG explicitly if you used it.", type: "add_if_true", grounding: "gap — not stated in CV", source: "both" },
       { action: "Reframe the Assist chatbot bullet.", type: "reframe", grounding: "CV: global AI chatbot, Assist", source: "claude" },
@@ -37,6 +38,45 @@ describe("Consolidation", () => {
     expect(screen.getByText("Add if true")).toBeInTheDocument();
     expect(screen.getByText("Reframe")).toBeInTheDocument();
     expect(screen.getByText(/gap — not stated in CV/)).toBeInTheDocument();
+  });
+
+  it("renders a single Lead with line with joined strengths", () => {
+    render(
+      <Consolidation
+        state={state({
+          data: plan({
+            lead_with: [
+              "Production TypeScript across customer-facing products",
+              "Direct experience building AI chat interfaces",
+            ],
+          }),
+        })}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        "Production TypeScript across customer-facing products · Direct experience building AI chat interfaces",
+        { exact: false },
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("Lead with:")).toHaveLength(1);
+  });
+
+  it("renders no Lead with text when strengths are empty", () => {
+    render(<Consolidation state={state({ data: plan({ lead_with: [] }) })} />);
+
+    expect(screen.queryByText(/Lead with:/)).not.toBeInTheDocument();
+  });
+
+  it("tolerates an older plan without lead_with", () => {
+    const olderPlan = plan();
+    delete (olderPlan as Partial<ConsolidationPlan>).lead_with;
+
+    expect(() =>
+      render(<Consolidation state={state({ data: olderPlan })} />),
+    ).not.toThrow();
+    expect(screen.queryByText(/Lead with:/)).not.toBeInTheDocument();
   });
 
   it("shows an honest caveat when present", () => {

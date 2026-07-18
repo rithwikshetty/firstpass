@@ -73,9 +73,9 @@ export async function POST(request: NextRequest) {
     );
     if (oversized) return oversized;
 
-    logger.info("consolidate.form_data.start", logContext);
+    logger.debug("consolidate.form_data.start", logContext);
     const formData = await request.formData();
-    logger.info("consolidate.form_data.finish", logContext);
+    logger.debug("consolidate.form_data.finish", logContext);
     const claudeRaw = formData.get("claude");
     const gptRaw = formData.get("gpt");
 
@@ -90,7 +90,7 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
-    logger.info("consolidate.review_payloads_received", {
+    logger.debug("consolidate.review_payloads_received", {
       ...logContext,
       claudeReviewChars: claudeRaw.length,
       gptReviewChars: gptRaw.length,
@@ -153,7 +153,7 @@ export async function POST(request: NextRequest) {
     );
     const estimatedPromptTokens =
       estimateTokenCount(system) + estimateTokenCount(user);
-    logger.info("consolidate.prompt_built", {
+    logger.debug("consolidate.prompt_built", {
       ...logContext,
       cvChars: cvText.length,
       jobDescriptionChars: jobDescription.length,
@@ -197,6 +197,7 @@ export async function POST(request: NextRequest) {
         modelId: CLAUDE_MODEL,
         durationMs: elapsedMs(modelStartedAt),
         fixFirstCount: data.fix_first.length,
+        leadWithCount: data.lead_with.length,
         hasHonestCaveat: Boolean(data.honest_caveat),
       });
       return NextResponse.json({ data, error: null });

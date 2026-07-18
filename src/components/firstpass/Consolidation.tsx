@@ -72,6 +72,13 @@ export function Consolidation({ state }: { state: ConsolidationState }) {
         <span className="text-ink-45"> — {plan.consensus.agreement_note}</span>
       </p>
 
+      {plan.lead_with?.length > 0 && (
+        <p className="mt-2 text-[0.85rem] leading-[1.5] text-ink-45">
+          <span className="font-semibold text-ink-70">Lead with:</span>{" "}
+          {plan.lead_with.join(" · ")}
+        </p>
+      )}
+
       {plan.honest_caveat && (
         <p className="mt-4 border-l-2 border-warn pl-3 text-[0.9rem] leading-[1.5] text-ink-70">
           {plan.honest_caveat}

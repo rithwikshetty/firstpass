@@ -20,6 +20,9 @@ export interface ConsolidationPlan {
     scores: string;
     agreement_note: string;
   };
+  // 0-3 short strengths the CV already demonstrably contains that matter most
+  // for THIS job — the things to lead with when applying.
+  lead_with: string[];
   fix_first: Array<{
     action: string;
     type: FixType;
@@ -42,6 +45,11 @@ export const consolidationJsonSchema = {
       required: ["scores", "agreement_note"],
       additionalProperties: false,
     },
+    lead_with: {
+      type: "array",
+      items: { type: "string" },
+      maxItems: 3,
+    },
     fix_first: {
       type: "array",
       items: {
@@ -58,7 +66,7 @@ export const consolidationJsonSchema = {
     },
     honest_caveat: { type: ["string", "null"] },
   },
-  required: ["headline_verdict", "consensus", "fix_first", "honest_caveat"],
+  required: ["headline_verdict", "consensus", "lead_with", "fix_first", "honest_caveat"],
   additionalProperties: false,
 };
 
@@ -79,8 +87,9 @@ ABSOLUTE RULES — honesty over helpfulness:
 6. If the role has hard requirements the candidate clearly lacks (a credential, a seniority level, a whole domain), lead fix_first with a type "redirect" item and state it plainly in honest_caveat, pointing them toward a better-fit direction. Do not pretend wording fixes a real mismatch.
 7. Do NOT re-score. Put the two given scores verbatim in consensus.scores, e.g. "Claude 82 · GPT 76" (the system also fills this field deterministically, so never alter the numbers). In agreement_note, say whether the two screeners broadly agree and on what.
 8. Prefer points BOTH reviewers raised (source "both"); attribute single-reviewer points to "claude" or "gpt". Deduplicate — never repeat a fix.
+9. lead_with contains 0-3 short phrases (5-10 words each) naming the CV's strongest REAL assets for this specific job — each must point to something the CV literally states and the job description actually asks for. No hedged or inferred skills, no generic virtues ("hard worker"), no repetition of fix_first items. If the CV has no genuine standout strengths for this role, return an empty array rather than inventing weak ones.
 
-Keep it tight: a job-seeker should be able to act in five minutes. Give 3–5 fixes, highest-leverage first. headline_verdict is 1–2 plain sentences on where this CV stands for THIS job. honest_caveat is null unless there is a real hard mismatch worth flagging.`;
+Keep it tight: a job-seeker should be able to act in five minutes. Give 0–3 brief lead_with strengths and 3–5 fixes, highest-leverage first. headline_verdict is 1–2 plain sentences on where this CV stands for THIS job. honest_caveat is null unless there is a real hard mismatch worth flagging.`;
 
   const user = `--- CV (raw extracted text) ---
 ${cvText}

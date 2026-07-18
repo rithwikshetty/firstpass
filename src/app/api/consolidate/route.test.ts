@@ -148,6 +148,7 @@ describe("/api/consolidate gating", () => {
     vi.mocked(consolidateWithClaude).mockResolvedValue({
       headline_verdict: "Good fit.",
       consensus: { scores: "", agreement_note: "Both agree." },
+      lead_with: [],
       fix_first: [],
       honest_caveat: null,
     });
