@@ -13,6 +13,7 @@ export type LogFields = Record<string, LogValue>;
 
 type LogLevel = "debug" | "info" | "warn" | "error";
 type ConfiguredLogLevel = LogLevel | "silent";
+type LogFormat = "json" | "pretty";
 
 const LEVEL_PRIORITY: Record<ConfiguredLogLevel, number> = {
   debug: 10,
@@ -23,6 +24,37 @@ const LEVEL_PRIORITY: Record<ConfiguredLogLevel, number> = {
 };
 
 const MAX_LOG_STRING_LENGTH = 2_000;
+const ANSI = {
+  reset: "\u001b[0m",
+  bold: "\u001b[1m",
+  dim: "\u001b[2m",
+  gray: "\u001b[90m",
+  cyan: "\u001b[36m",
+  yellow: "\u001b[33m",
+  red: "\u001b[31m",
+} as const;
+
+const LEVEL_COLORS: Record<LogLevel, string> = {
+  debug: ANSI.gray,
+  info: ANSI.cyan,
+  warn: ANSI.yellow,
+  error: ANSI.red,
+};
+
+const PRETTY_OMITTED_FIELDS = new Set([
+  "userAgent",
+  "clientIp",
+  "vercelId",
+  "origin",
+  "contentLength",
+  "route",
+]);
+
+function configuredLogFormat(): LogFormat {
+  const configured = process.env.LOG_FORMAT?.toLowerCase();
+  if (configured === "json" || configured === "pretty") return configured;
+  return process.env.NODE_ENV === "development" ? "pretty" : "json";
+}
 
 function configuredLogLevel(): ConfiguredLogLevel {
   const configured = process.env.LOG_LEVEL?.toLowerCase();
@@ -99,6 +131,45 @@ function sanitizeLogValue(value: LogValue, key = "", depth = 0): unknown {
   );
 }
 
+function prettyValue(value: unknown) {
+  if (typeof value === "string") return value;
+  if (
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    value === null
+  ) {
+    return String(value);
+  }
+  return JSON.stringify(value);
+}
+
+function formatPrettyLog(record: Record<string, unknown>) {
+  const timestamp = new Date(String(record.timestamp))
+    .toTimeString()
+    .slice(0, 8);
+  const level = String(record.level) as LogLevel;
+  const event = String(record.event);
+  const fields = Object.entries(record)
+    .filter(
+      ([key, value]) =>
+        key !== "timestamp" &&
+        key !== "level" &&
+        key !== "event" &&
+        value !== undefined &&
+        !PRETTY_OMITTED_FIELDS.has(key),
+    )
+    .map(([key, value]) => {
+      const rendered =
+        key === "requestId" && typeof value === "string"
+          ? value.slice(0, 8)
+          : prettyValue(value);
+      return `${key}=${rendered}`;
+    });
+
+  const prefix = `${ANSI.dim}${timestamp}${ANSI.reset} ${LEVEL_COLORS[level]}${level.toUpperCase()}${ANSI.reset} ${ANSI.bold}${event}${ANSI.reset}`;
+  return fields.length > 0 ? `${prefix}  ${fields.join(" ")}` : prefix;
+}
+
 function writeLog(level: LogLevel, event: string, fields: LogFields = {}) {
   if (!shouldLog(level)) return;
 
@@ -108,7 +179,10 @@ function writeLog(level: LogLevel, event: string, fields: LogFields = {}) {
     event,
     ...fields,
   }) as Record<string, unknown>;
-  const line = JSON.stringify(record);
+  const line =
+    configuredLogFormat() === "pretty"
+      ? formatPrettyLog(record)
+      : JSON.stringify(record);
 
   if (level === "error") {
     console.error(line);

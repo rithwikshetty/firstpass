@@ -1,6 +1,8 @@
 import OpenAI from "openai";
 import { type ReviewResult, reviewJsonSchema } from "../schema";
 
+export const GPT_MODEL = "gpt-5.6-sol";
+
 let client: OpenAI | null = null;
 
 function openAIClient() {
@@ -13,7 +15,7 @@ export async function reviewWithGPT(
   user: string
 ): Promise<ReviewResult> {
   const response = await openAIClient().responses.create({
-    model: "gpt-5.6-sol",
+    model: GPT_MODEL,
     instructions: system,
     input: user,
     text: {

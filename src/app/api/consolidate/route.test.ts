@@ -9,7 +9,10 @@ import {
 import type { ReviewResult } from "@/lib/schema";
 
 // Mock the model adapter so the route never makes a real API call.
-vi.mock("@/lib/models/anthropic", () => ({ consolidateWithClaude: vi.fn() }));
+vi.mock("@/lib/models/anthropic", () => ({
+  CLAUDE_MODEL: "claude-opus-4-8",
+  consolidateWithClaude: vi.fn(),
+}));
 vi.mock("@/lib/parser", () => ({ extractText: vi.fn() }));
 
 import { extractText } from "@/lib/parser";

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { buildRubricPrompt } from "@/lib/rubric";
-import { reviewWithClaude } from "@/lib/models/anthropic";
-import { reviewWithGPT } from "@/lib/models/openai";
+import { CLAUDE_MODEL, reviewWithClaude } from "@/lib/models/anthropic";
+import { GPT_MODEL, reviewWithGPT } from "@/lib/models/openai";
 import { SESSION_COOKIE, isAuthorized } from "@/lib/auth";
 import {
   BudgetError,
@@ -23,8 +23,18 @@ import { withRequestLogging } from "@/lib/route-logging";
 export const runtime = "nodejs";
 
 const MODELS = {
-  claude: { run: reviewWithClaude, keyEnv: "ANTHROPIC_API_KEY", label: "Claude" },
-  gpt: { run: reviewWithGPT, keyEnv: "OPENAI_API_KEY", label: "GPT" },
+  claude: {
+    run: reviewWithClaude,
+    keyEnv: "ANTHROPIC_API_KEY",
+    label: "Claude",
+    modelId: CLAUDE_MODEL,
+  },
+  gpt: {
+    run: reviewWithGPT,
+    keyEnv: "OPENAI_API_KEY",
+    label: "GPT",
+    modelId: GPT_MODEL,
+  },
 } as const;
 
 type ModelName = keyof typeof MODELS;
@@ -58,7 +68,7 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
-    const { run, keyEnv, label } = MODELS[model as ModelName];
+    const { run, keyEnv, label, modelId } = MODELS[model as ModelName];
 
     if (!process.env[keyEnv]) {
       logger.error("review.provider_not_configured", {
@@ -80,9 +90,9 @@ export async function POST(request: NextRequest) {
     );
     if (oversized) return oversized;
 
-    logger.info("review.form_data.start", { ...logContext, model });
+    logger.debug("review.form_data.start", { ...logContext, model });
     const formData = await request.formData();
-    logger.info("review.form_data.finish", { ...logContext, model });
+    logger.debug("review.form_data.finish", { ...logContext, model });
 
     // Both sections accept one or more PDF/DOCX uploads (the job description may
     // also be pasted). Each file is parsed server-side and combined. Resolve the
@@ -109,7 +119,7 @@ export async function POST(request: NextRequest) {
     const { system, user } = buildRubricPrompt(cvText, jobDescription);
     const estimatedPromptTokens =
       estimateTokenCount(system) + estimateTokenCount(user);
-    logger.info("review.prompt_built", {
+    logger.debug("review.prompt_built", {
       ...logContext,
       model,
       cvChars: cvText.length,
@@ -139,6 +149,7 @@ export async function POST(request: NextRequest) {
     logger.info("review.model.start", {
       ...logContext,
       model,
+      modelId,
       provider: label,
       estimatedPromptTokens,
     });
@@ -147,6 +158,7 @@ export async function POST(request: NextRequest) {
       logger.info("review.model.finish", {
         ...logContext,
         model,
+        modelId,
         provider: label,
         durationMs: elapsedMs(modelStartedAt),
         matchScore: Math.round(data.match_score),
@@ -159,6 +171,7 @@ export async function POST(request: NextRequest) {
       logger.error("review.model.failed", {
         ...logContext,
         model,
+        modelId,
         provider: label,
         durationMs: elapsedMs(modelStartedAt),
         error: serializeError(err),

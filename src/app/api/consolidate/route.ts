@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { buildConsolidationPrompt } from "@/lib/consolidator";
-import { consolidateWithClaude } from "@/lib/models/anthropic";
+import {
+  CLAUDE_MODEL,
+  consolidateWithClaude,
+} from "@/lib/models/anthropic";
 import { SESSION_COOKIE, isAuthorized } from "@/lib/auth";
 import type { ReviewResult } from "@/lib/schema";
 import {
@@ -180,6 +183,7 @@ export async function POST(request: NextRequest) {
     logger.info("consolidate.model.start", {
       ...logContext,
       provider: "Claude",
+      modelId: CLAUDE_MODEL,
       estimatedPromptTokens,
     });
     try {
@@ -190,6 +194,7 @@ export async function POST(request: NextRequest) {
       logger.info("consolidate.model.finish", {
         ...logContext,
         provider: "Claude",
+        modelId: CLAUDE_MODEL,
         durationMs: elapsedMs(modelStartedAt),
         fixFirstCount: data.fix_first.length,
         hasHonestCaveat: Boolean(data.honest_caveat),
@@ -199,6 +204,7 @@ export async function POST(request: NextRequest) {
       logger.error("consolidate.model.failed", {
         ...logContext,
         provider: "Claude",
+        modelId: CLAUDE_MODEL,
         durationMs: elapsedMs(modelStartedAt),
         error: serializeError(err),
       });

@@ -8,8 +8,14 @@ import {
 import type { ReviewResult } from "@/lib/schema";
 
 // Mock the model adapters so the route never makes a real API call.
-vi.mock("@/lib/models/anthropic", () => ({ reviewWithClaude: vi.fn() }));
-vi.mock("@/lib/models/openai", () => ({ reviewWithGPT: vi.fn() }));
+vi.mock("@/lib/models/anthropic", () => ({
+  CLAUDE_MODEL: "claude-opus-4-8",
+  reviewWithClaude: vi.fn(),
+}));
+vi.mock("@/lib/models/openai", () => ({
+  GPT_MODEL: "gpt-5.6-sol",
+  reviewWithGPT: vi.fn(),
+}));
 vi.mock("@/lib/parser", () => ({ extractText: vi.fn() }));
 
 import { extractText } from "@/lib/parser";

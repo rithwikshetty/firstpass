@@ -81,7 +81,7 @@ export async function withRequestLogging(
   const context = buildRequestLogContext(request, route);
   const startedAt = Date.now();
 
-  logger.info("api.request.start", context);
+  logger.debug("api.request.start", context);
 
   try {
     const response = await handler(context);

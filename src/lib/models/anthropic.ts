@@ -2,6 +2,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { type ReviewResult, reviewJsonSchema } from "../schema";
 import { type ConsolidationPlan, consolidationJsonSchema } from "../consolidator";
 
+export const CLAUDE_MODEL = "claude-opus-4-8";
+
 let client: Anthropic | null = null;
 
 function anthropicClient() {
@@ -24,7 +26,7 @@ async function runJsonSchema<T>(
   schema: Record<string, unknown>,
 ): Promise<T> {
   const stream = anthropicClient().messages.stream({
-    model: "claude-opus-4-8",
+    model: CLAUDE_MODEL,
     max_tokens: MAX_OUTPUT_TOKENS,
     thinking: { type: "adaptive" },
     system,
