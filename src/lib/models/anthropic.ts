@@ -1,7 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { type ReviewResult, reviewJsonSchema } from "../schema";
 import { type ConsolidationPlan, consolidationJsonSchema } from "../consolidator";
-import { MODEL_OUTPUT_TOKEN_LIMIT } from "../budgets";
 
 let client: Anthropic | null = null;
 
@@ -10,15 +9,24 @@ function anthropicClient() {
   return client;
 }
 
+/**
+ * Generous output ceiling. The reviews are a few thousand tokens at most, but
+ * a tight cap silently truncates the JSON mid-object on keyword-heavy CVs.
+ * Outputs this large require streaming, so the call below streams and then
+ * collects the final message.
+ */
+const MAX_OUTPUT_TOKENS = 64_000;
+
 /** Call Claude with a forced JSON-schema response and parse the text back out. */
 async function runJsonSchema<T>(
   system: string,
   user: string,
   schema: Record<string, unknown>,
 ): Promise<T> {
-  const response = await anthropicClient().messages.create({
+  const stream = anthropicClient().messages.stream({
     model: "claude-opus-4-8",
-    max_tokens: MODEL_OUTPUT_TOKEN_LIMIT,
+    max_tokens: MAX_OUTPUT_TOKENS,
+    thinking: { type: "adaptive" },
     system,
     messages: [{ role: "user", content: user }],
     output_config: {
@@ -28,6 +36,17 @@ async function runJsonSchema<T>(
       },
     },
   });
+
+  const response = await stream.finalMessage();
+
+  if (response.stop_reason === "refusal") {
+    throw new Error("Claude declined to review this content.");
+  }
+  if (response.stop_reason === "max_tokens") {
+    throw new Error(
+      "Claude's response was cut off before it finished. Please try again.",
+    );
+  }
 
   const text = response.content
     .filter(

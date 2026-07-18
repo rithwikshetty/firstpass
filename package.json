@@ -24,11 +24,11 @@
     "release:check": "npm run env:check && npm run lint && npm run test && npm audit --omit=dev --audit-level=moderate && npm run build && npm run scan:artifact"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.100.1",
+    "@anthropic-ai/sdk": "^0.112.3",
     "@napi-rs/canvas": "^1.0.0",
     "mammoth": "^1.12.0",
-    "next": "^16.2.7",
-    "openai": "^6.41.0",
+    "next": "^16.2.10",
+    "openai": "^6.48.0",
     "pdf-parse": "^2.4.5",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
@@ -42,8 +42,8 @@
     "@types/react": "^19.2.16",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.2",
-    "eslint": "^9.39.4",
-    "eslint-config-next": "^16.2.7",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.2.10",
     "jsdom": "^29.1.1",
     "tailwindcss": "^4.3.0",
     "typescript": "^6.0.3",

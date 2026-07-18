@@ -19,7 +19,7 @@ export const MODEL_LABEL: Record<ModelKey, string> = {
 
 export const MODEL_SUBLABEL: Record<ModelKey, string> = {
   claude: "opus 4.8",
-  gpt: "gpt 5.5",
+  gpt: "gpt 5.6 sol",
 };
 
 export const emptyResult: ModelResult = {

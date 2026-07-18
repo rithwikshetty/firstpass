@@ -8,7 +8,6 @@ export const MAX_CV_FILES = 5;
 export const MAX_CV_FILE_BYTES = 8 * 1024 * 1024; // 8 MB per file
 export const MAX_REVIEW_JSON_CHARS = 60_000;
 export const MAX_PROMPT_TOKENS = 50_000;
-export const MODEL_OUTPUT_TOKEN_LIMIT = 4096;
 
 export class BudgetError extends Error {
   status = 413;

@@ -1,6 +1,5 @@
 import OpenAI from "openai";
 import { type ReviewResult, reviewJsonSchema } from "../schema";
-import { MODEL_OUTPUT_TOKEN_LIMIT } from "../budgets";
 
 let client: OpenAI | null = null;
 
@@ -14,10 +13,9 @@ export async function reviewWithGPT(
   user: string
 ): Promise<ReviewResult> {
   const response = await openAIClient().responses.create({
-    model: "gpt-5.5",
+    model: "gpt-5.6-sol",
     instructions: system,
     input: user,
-    max_output_tokens: MODEL_OUTPUT_TOKEN_LIMIT,
     text: {
       format: {
         type: "json_schema",
@@ -28,5 +26,16 @@ export async function reviewWithGPT(
     },
   });
 
-  return JSON.parse(response.output_text) as ReviewResult;
+  if (response.status === "incomplete") {
+    throw new Error(
+      "GPT's response was cut off before it finished. Please try again.",
+    );
+  }
+
+  const text = response.output_text;
+  if (!text.trim()) {
+    throw new Error("GPT returned an empty response.");
+  }
+
+  return JSON.parse(text) as ReviewResult;
 }
