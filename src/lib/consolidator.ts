@@ -45,10 +45,11 @@ export const consolidationJsonSchema = {
       required: ["scores", "agreement_note"],
       additionalProperties: false,
     },
+    // NB: Anthropic structured outputs reject "maxItems" — the 0-3 cap lives
+    // in the prompt rules and is enforced in the route.
     lead_with: {
       type: "array",
       items: { type: "string" },
-      maxItems: 3,
     },
     fix_first: {
       type: "array",

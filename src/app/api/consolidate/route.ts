@@ -191,6 +191,8 @@ export async function POST(request: NextRequest) {
       // The two scores are facts, not a model judgement — set them deterministically
       // from the reviews so the lead can never disagree with the columns below.
       data.consensus.scores = `Claude ${Math.round(claude.match_score)} · GPT ${Math.round(gpt.match_score)}`;
+      // The schema can't cap lead_with (maxItems unsupported), so cap it here.
+      data.lead_with = data.lead_with.slice(0, 3);
       logger.info("consolidate.model.finish", {
         ...logContext,
         provider: "Claude",
