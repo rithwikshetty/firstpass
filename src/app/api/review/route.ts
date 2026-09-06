@@ -4,7 +4,7 @@ import { CLAUDE_MODEL, reviewWithClaude, consolidateWithClaude } from "@/lib/mod
 import { GPT_MODEL, reviewWithGPT } from "@/lib/models/openai";
 import { buildConsolidationPrompt } from "@/lib/consolidator";
 import { reviewJsonSchema } from "@/lib/schema";
-import type { ReviewEffort, ReviewEvent, ReviewStage } from "@/lib/review-stream";
+import type { ReviewEvent, ReviewStage } from "@/lib/review-stream";
 import { SESSION_COOKIE, isAuthorized } from "@/lib/auth";
 import {
   BudgetError,
@@ -100,16 +100,6 @@ export async function POST(request: NextRequest) {
       throw err;
     }
     logger.debug("review.form_data.finish", logContext);
-
-    const effortValue = formData.get("effort") ?? "thorough";
-    if (effortValue !== "quick" && effortValue !== "thorough") {
-      logger.warn("review.invalid_effort", logContext);
-      return NextResponse.json(
-        { error: 'Invalid effort. Use "quick" or "thorough".' },
-        { status: 400 },
-      );
-    }
-    const effort: ReviewEffort = effortValue;
 
     // Both sections accept one or more PDF/DOCX uploads (the job description may
     // also be pasted). Each file is parsed server-side and combined. Resolve the
@@ -211,7 +201,7 @@ export async function POST(request: NextRequest) {
             }
           };
           try {
-            const data = await run(system, user, { effort, onText, signal });
+            const data = await run(system, user, { onText, signal });
             logger.info("review.model.finish", {
               ...modelContext,
               durationMs: elapsedMs(modelStartedAt),
@@ -252,7 +242,7 @@ export async function POST(request: NextRequest) {
                 ...modelContext,
                 estimatedPromptTokens: estimateTokenCount(prompt.system) + estimateTokenCount(prompt.user),
               });
-              const data = await consolidateWithClaude(prompt.system, prompt.user, { effort, signal });
+              const data = await consolidateWithClaude(prompt.system, prompt.user, { signal });
               // The two scores are facts, not a model judgement — set them deterministically
               // from the reviews so the lead can never disagree with the columns below.
               data.consensus.scores = `Claude ${Math.round(claude.match_score)} · GPT ${Math.round(gpt.match_score)}`;

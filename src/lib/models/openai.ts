@@ -15,13 +15,13 @@ function openAIClient() {
 export async function reviewWithGPT(
   system: string,
   user: string,
-  { effort = "thorough", onText, signal }: ReviewOptions = {},
+  { onText, signal }: ReviewOptions = {},
 ): Promise<ReviewResult> {
   const stream = openAIClient().responses.stream({
     model: GPT_MODEL,
     instructions: system,
     input: user,
-    reasoning: { effort: effort === "quick" ? "low" : "high" },
+    reasoning: { effort: "high" },
     // The UI promises the CV is not kept after the review; don't let OpenAI
     // retain the request as stored response state either.
     store: false,

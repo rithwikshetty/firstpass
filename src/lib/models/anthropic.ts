@@ -32,7 +32,7 @@ async function runJsonSchema<T>(
   user: string,
   schema: Record<string, unknown>,
   isValid: (value: unknown) => value is T,
-  { effort = "thorough", onText, signal }: ReviewOptions,
+  { onText, signal }: ReviewOptions,
 ): Promise<T> {
   // Claude Opus 5 can decline a request on safety grounds (stop_reason
   // "refusal"). `fallbacks: "default"` re-runs a declined request server-side
@@ -46,7 +46,7 @@ async function runJsonSchema<T>(
     system,
     messages: [{ role: "user", content: user }],
     output_config: {
-      effort: effort === "quick" ? "low" : "high",
+      effort: "high",
       format: {
         type: "json_schema",
         schema,

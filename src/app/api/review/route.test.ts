@@ -119,20 +119,6 @@ describe("/api/review gating", () => {
     expect(reviewWithClaude).not.toHaveBeenCalled();
   });
 
-  it.each(["", "low", "high", "Quick", "banana"])("rejects invalid effort %j", async (effort) => {
-    const body = makeBody();
-    body.set("effort", effort);
-    const res = await POST(makeReq(body));
-    expect(res.status).toBe(400);
-    expect(extractText).not.toHaveBeenCalled();
-  });
-
-  it("rejects a file used as effort", async () => {
-    const body = makeBody();
-    body.set("effort", new File(["quick"], "effort.txt"));
-    expect((await POST(makeReq(body))).status).toBe(400);
-  });
-
   it("rejects oversized content length", async () => {
     const res = await POST(makeReq(makeBody(), { headers: { "content-length": "100000000" } }));
     expect(res.status).toBe(413);
@@ -185,7 +171,6 @@ describe("/api/review stream", () => {
     expect(extractText).toHaveBeenCalledOnce();
     for (const run of [reviewWithClaude, reviewWithGPT, consolidateWithClaude]) {
       expect(run).toHaveBeenCalledOnce();
-      expect(vi.mocked(run).mock.calls[0][2]?.effort).toBe("thorough");
     }
   });
 
@@ -206,15 +191,6 @@ describe("/api/review stream", () => {
     const result = await events(await POST(makeReq()));
     expect(result.filter((event) => event.type === "review")).toHaveLength(2);
     expect(result.slice(-2)).toEqual([{ type: "consolidation", error: "Consolidation failed." }, { type: "done" }]);
-  });
-
-  it("threads quick effort through all three calls", async () => {
-    const body = makeBody();
-    body.set("effort", "quick");
-    await events(await POST(makeReq(body)));
-    for (const run of [reviewWithClaude, reviewWithGPT, consolidateWithClaude]) {
-      expect(vi.mocked(run).mock.calls[0][2]?.effort).toBe("quick");
-    }
   });
 
   it("accepts uploaded job descriptions and multiple CV documents, parsing each once", async () => {

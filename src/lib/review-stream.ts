@@ -1,12 +1,10 @@
 import type { ReviewResult } from "./schema";
 import type { ConsolidationPlan } from "./consolidator";
 
-export type ReviewEffort = "quick" | "thorough";
 export type ReviewModel = "claude" | "gpt";
 export type ReviewStage = keyof ReviewResult;
 
 export interface ReviewOptions {
-  effort?: ReviewEffort;
   onText?: (delta: string) => void;
   signal?: AbortSignal;
 }

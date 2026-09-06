@@ -12,7 +12,7 @@ the user can decide what to improve first.
 - Next.js App Router application
 - PDF and DOCX text extraction
 - One streaming request runs Claude and GPT reviews in parallel, then consolidates their advice
-- Quick or Thorough review effort, with live stage updates
+- Live stage updates while each model works
 - Structured JSON responses with schema checks
 - Small access gate for private deployments
 - Request size, origin, and prompt budget checks

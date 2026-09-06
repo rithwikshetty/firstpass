@@ -10,7 +10,7 @@ import {
   type ConsolidationState,
   type Screen,
 } from "./types";
-import type { ReviewEffort, ReviewEvent, ReviewStage } from "@/lib/review-stream";
+import type { ReviewEvent, ReviewStage } from "@/lib/review-stream";
 import { Gate } from "./Gate";
 import { InputScreen } from "./InputScreen";
 import { Analyzing } from "./Analyzing";
@@ -30,7 +30,6 @@ export function FirstPass() {
   const [cvFiles, setCvFiles] = useState<File[]>([]);
   const [jobDescription, setJobDescription] = useState("");
   const [jobFiles, setJobFiles] = useState<File[]>([]);
-  const [effort, setEffort] = useState<ReviewEffort>("thorough");
   const [stages, setStages] = useState<Partial<Record<ModelKey, ReviewStage>>>({});
 
   // Results
@@ -134,7 +133,6 @@ export function FirstPass() {
     cvFiles.forEach((cvFile) => body.append("cv", cvFile));
     body.append("jobDescription", jobDescription);
     jobFiles.forEach((jobFile) => body.append("jobFile", jobFile));
-    body.append("effort", effort);
 
     try {
       const res = await fetch("/api/review", { method: "POST", body, signal: abort.signal });
@@ -185,7 +183,7 @@ export function FirstPass() {
         setConsolidation((prev) => ({ ...prev, loading: false }));
       }
     }
-  }, [cvFiles, jobDescription, jobFiles, effort]);
+  }, [cvFiles, jobDescription, jobFiles]);
 
   const handleReset = useCallback(() => {
     abortRef.current?.abort();
@@ -243,8 +241,6 @@ export function FirstPass() {
       onJobDescriptionChange={setJobDescription}
       jobFiles={jobFiles}
       onJobFilesChange={setJobFiles}
-      effort={effort}
-      onEffortChange={setEffort}
       onReview={handleReview}
     />
   );

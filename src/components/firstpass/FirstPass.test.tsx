@@ -28,13 +28,11 @@ beforeEach(() => {
 
 afterEach(() => vi.unstubAllGlobals());
 
-async function startReview(quick = false) {
+async function startReview() {
   const view = render(<FirstPass />);
   await screen.findByRole("button", { name: "Review my CV" });
-  expect(screen.getByRole("button", { name: "Thorough" })).toHaveAttribute("aria-pressed", "true");
   fireEvent.drop(screen.getByRole("button", { name: /Drop your CV/ }), { dataTransfer: { files: [new File(["cv"], "cv.pdf")] } });
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "TypeScript engineer" } });
-  if (quick) fireEvent.click(screen.getByRole("button", { name: "Quick" }));
   fireEvent.click(screen.getByRole("button", { name: "Review my CV" }));
   await screen.findByText("Screening…");
   return view;
@@ -48,11 +46,11 @@ async function send(...events: ReviewEvent[]) {
 
 describe("FirstPass streaming workflow", () => {
   it("sends one multipart request and handles split lines, UTF-8, stages and later consolidation", async () => {
-    await startReview(true);
+    await startReview();
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const [url, options] = fetchMock.mock.calls[1];
     expect(url).toBe("/api/review");
-    expect(options.body.get("effort")).toBe("quick");
+    expect(options.body.get("effort")).toBeNull();
     expect(options.body.get("cv").name).toBe("cv.pdf");
     expect(options.body.get("jobDescription")).toBe("TypeScript engineer");
     await send({ type: "ping" }, { type: "stage", model: "claude", stage: "keywords" });
@@ -77,7 +75,6 @@ describe("FirstPass streaming workflow", () => {
 
   it("shows a per-model error and clears the consolidation skeleton on done", async () => {
     await startReview();
-    expect(fetchMock.mock.calls[1][1].body.get("effort")).toBe("thorough");
     await send({ type: "review", model: "gpt", error: "GPT failed." }, { type: "review", model: "claude", data: review }, { type: "done" });
     expect(screen.getByText("GPT failed.")).toBeInTheDocument();
     expect(screen.getByText(/Résumé fits the role/)).toBeInTheDocument();

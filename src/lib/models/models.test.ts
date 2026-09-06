@@ -4,7 +4,6 @@ import { reviewWithClaude, consolidateWithClaude, CLAUDE_MODEL } from "./anthrop
 import { reviewWithGPT, GPT_MODEL } from "./openai";
 import { isConsolidationPlan } from "../consolidator";
 import type { ReviewResult } from "../schema";
-import type { ReviewEffort } from "../review-stream";
 import { logger } from "../logger";
 
 const sdk = vi.hoisted(() => ({
@@ -62,27 +61,27 @@ beforeEach(() => {
 });
 
 describe("streaming model adapters", () => {
-  it.each(["quick", "thorough"] as ReviewEffort[])("maps %s effort, forwards text and signal, and preserves provider settings", async (effort) => {
+  it("uses high effort, forwards text and signal, and preserves provider settings", async () => {
     const signal = new AbortController().signal;
     const onText = vi.fn();
-    const options = { effort, signal, onText };
+    const options = { signal, onText };
     expect(await reviewWithClaude("system", "user", options)).toEqual(review);
     expect(await reviewWithGPT("system", "user", options)).toEqual(review);
     expect(onText.mock.calls).toEqual([[ '{"match_score":80,' ], [ '{"match_score":80,' ]]);
     sdk.finalMessage.mockResolvedValue(claudeResponse(plan));
-    expect(await consolidateWithClaude("system", "user", { effort, signal })).toEqual(plan);
+    expect(await consolidateWithClaude("system", "user", { signal })).toEqual(plan);
     expect(sdk.anthropic).toHaveBeenCalledTimes(2);
     for (const [body, requestOptions] of sdk.anthropic.mock.calls) {
       expect(body).toMatchObject({
         model: CLAUDE_MODEL,
         betas: ["server-side-fallback-2026-07-01"], fallbacks: "default",
         thinking: { type: "adaptive" },
-        output_config: { effort: effort === "quick" ? "low" : "high", format: { type: "json_schema" } },
+        output_config: { effort: "high", format: { type: "json_schema" } },
       });
       expect(requestOptions.signal).toBe(signal);
     }
     expect(sdk.openai).toHaveBeenCalledWith(expect.objectContaining({
-      model: GPT_MODEL, store: false, reasoning: { effort: effort === "quick" ? "low" : "high" },
+      model: GPT_MODEL, store: false, reasoning: { effort: "high" },
     }), { signal });
   });
 
