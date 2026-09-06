@@ -95,6 +95,34 @@ describe("extractText parser budgets", () => {
     expect(parserMocks.pdfDestroy).toHaveBeenCalledOnce();
   });
 
+  it("disables pdf-parse page separators so a blank PDF yields no text", async () => {
+    parserMocks.pdfText = "\n\n";
+
+    await expect(extractText(pdfBuffer(), "blank.pdf")).resolves.toBe("");
+    expect(parserMocks.pdfGetText).toHaveBeenCalledWith(
+      expect.objectContaining({ pageJoiner: "" }),
+    );
+  });
+
+  it("rejects a DOCX whose declared entry count disagrees with its central directory", async () => {
+    const buffer = docxBuffer(1024, 2);
+    const eocdOffset = buffer.length - 22;
+    buffer.writeUInt16LE(0, eocdOffset + 8);
+    buffer.writeUInt16LE(0, eocdOffset + 10);
+
+    await expect(extractText(buffer, "cv.docx")).rejects.toThrow("Invalid DOCX file.");
+    expect(parserMocks.mammothExtractRawText).not.toHaveBeenCalled();
+  });
+
+  it("rejects a DOCX whose central directory does not end at the EOCD record", async () => {
+    const buffer = docxBuffer(1024, 2);
+    const eocdOffset = buffer.length - 22;
+    buffer.writeUInt32LE(46, eocdOffset + 12);
+
+    await expect(extractText(buffer, "cv.docx")).rejects.toThrow("Invalid DOCX file.");
+    expect(parserMocks.mammothExtractRawText).not.toHaveBeenCalled();
+  });
+
   it("rejects DOCX files that expand beyond the zip budget", async () => {
     await expect(
       extractText(

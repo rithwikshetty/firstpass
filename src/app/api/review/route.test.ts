@@ -9,7 +9,7 @@ import type { ReviewResult } from "@/lib/schema";
 
 // Mock the model adapters so the route never makes a real API call.
 vi.mock("@/lib/models/anthropic", () => ({
-  CLAUDE_MODEL: "claude-opus-4-8",
+  CLAUDE_MODEL: "claude-opus-5",
   reviewWithClaude: vi.fn(),
 }));
 vi.mock("@/lib/models/openai", () => ({
@@ -93,6 +93,12 @@ describe("/api/review gating", () => {
   it("rejects an unauthenticated request with 401", async () => {
     const res = await POST(makeReq("?model=claude"));
     expect(res.status).toBe(401);
+  });
+
+  it("rejects an inherited object key used as a model name with 400", async () => {
+    const res = await POST(makeReq("?model=toString", { token: sessionToken()! }));
+    expect(res.status).toBe(400);
+    expect(vi.mocked(reviewWithClaude)).not.toHaveBeenCalled();
   });
 
   it("rejects an invalid model with 400 when authenticated", async () => {

@@ -10,7 +10,7 @@ import type { ReviewResult } from "@/lib/schema";
 
 // Mock the model adapter so the route never makes a real API call.
 vi.mock("@/lib/models/anthropic", () => ({
-  CLAUDE_MODEL: "claude-opus-4-8",
+  CLAUDE_MODEL: "claude-opus-5",
   consolidateWithClaude: vi.fn(),
 }));
 vi.mock("@/lib/parser", () => ({ extractText: vi.fn() }));
@@ -130,6 +130,17 @@ describe("/api/consolidate gating", () => {
 
     expect(res.status).toBe(413);
     expect(vi.mocked(extractText)).not.toHaveBeenCalled();
+  });
+
+  it("rejects a review payload that is not a review object with 400", async () => {
+    for (const claude of ["null", "{}", "[]", '{"match_score":"82"}']) {
+      const res = await POST(
+        makeReq({ token: sessionToken()!, body: makeBody({ claude }) }),
+      );
+      expect(res.status).toBe(400);
+    }
+    expect(vi.mocked(extractText)).not.toHaveBeenCalled();
+    expect(vi.mocked(consolidateWithClaude)).not.toHaveBeenCalled();
   });
 
   it("rejects oversized extracted CV text before consolidation", async () => {

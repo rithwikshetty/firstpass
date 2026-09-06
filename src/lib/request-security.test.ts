@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
 import {
+  RequestBodyError,
+  readRequestFormData,
+  readRequestJson,
   rejectCrossOrigin,
   rejectOversizedContentLength,
 } from "./request-security";
@@ -43,5 +46,42 @@ describe("request security helpers", () => {
     });
 
     expect(rejectOversizedContentLength(request, 1024)?.status).toBe(413);
+  });
+
+  it("caps a body that arrives without Content-Length", async () => {
+    const request = new NextRequest("https://example.com/api/auth", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ password: "x".repeat(3000) }),
+    });
+
+    await expect(readRequestJson(request, 2048)).rejects.toMatchObject({
+      name: "RequestBodyError",
+      status: 413,
+    });
+  });
+
+  it("returns a 400-class error for a malformed multipart body", async () => {
+    const request = new NextRequest("https://example.com/api/review", {
+      method: "POST",
+      headers: { "content-type": "multipart/form-data" },
+      body: "not multipart",
+    });
+
+    const error = await readRequestFormData(request, 1024).catch((e) => e);
+    expect(error).toBeInstanceOf(RequestBodyError);
+    expect(error.status).toBe(400);
+  });
+
+  it("parses a well-formed multipart body within the cap", async () => {
+    const body = new FormData();
+    body.append("jobDescription", "We need TypeScript.");
+    const request = new NextRequest("https://example.com/api/review", {
+      method: "POST",
+      body,
+    });
+
+    const parsed = await readRequestFormData(request, 64 * 1024);
+    expect(parsed.get("jobDescription")).toBe("We need TypeScript.");
   });
 });

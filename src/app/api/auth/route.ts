@@ -12,6 +12,8 @@ import {
   recordFailedLogin,
 } from "@/lib/auth-throttle";
 import {
+  RequestBodyError,
+  readRequestJson,
   rejectCrossOrigin,
   rejectOversizedContentLength,
 } from "@/lib/request-security";
@@ -67,16 +69,14 @@ export async function POST(request: NextRequest) {
 
     let body: unknown;
     try {
-      body = await request.json();
-    } catch {
+      body = await readRequestJson(request, MAX_AUTH_BODY_BYTES, logContext);
+    } catch (err) {
+      if (!(err instanceof RequestBodyError)) throw err;
       logger.warn("auth.invalid_body", {
         ...logContext,
-        reason: "invalid_json",
+        reason: err.status === 413 ? "oversized" : "invalid_json",
       });
-      return NextResponse.json(
-        { error: "Invalid request body." },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: err.message }, { status: err.status });
     }
 
     const password =

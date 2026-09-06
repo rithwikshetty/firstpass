@@ -5,7 +5,7 @@ import {
   consolidateWithClaude,
 } from "@/lib/models/anthropic";
 import { SESSION_COOKIE, isAuthorized } from "@/lib/auth";
-import type { ReviewResult } from "@/lib/schema";
+import { type ReviewResult, isReviewResult } from "@/lib/schema";
 import {
   BudgetError,
   MAX_CV_FILES,
@@ -20,6 +20,8 @@ import {
 } from "@/lib/budgets";
 import { UploadError, resolveCv, resolveJobDescription } from "@/lib/uploads";
 import {
+  RequestBodyError,
+  readRequestFormData,
   rejectCrossOrigin,
   rejectOversizedContentLength,
 } from "@/lib/request-security";
@@ -74,7 +76,19 @@ export async function POST(request: NextRequest) {
     if (oversized) return oversized;
 
     logger.debug("consolidate.form_data.start", logContext);
-    const formData = await request.formData();
+    let formData: FormData;
+    try {
+      formData = await readRequestFormData(
+        request,
+        MAX_CONSOLIDATE_REQUEST_BYTES,
+        logContext,
+      );
+    } catch (err) {
+      if (err instanceof RequestBodyError) {
+        return NextResponse.json({ error: err.message }, { status: err.status });
+      }
+      throw err;
+    }
     logger.debug("consolidate.form_data.finish", logContext);
     const claudeRaw = formData.get("claude");
     const gptRaw = formData.get("gpt");
@@ -111,6 +125,26 @@ export async function POST(request: NextRequest) {
       throw err;
     }
 
+    // Parse and shape-check both reviews before touching the uploads: a
+    // malformed review is cheap to reject and must never reach the model.
+    let claude: ReviewResult;
+    let gpt: ReviewResult;
+    try {
+      const claudeParsed: unknown = JSON.parse(claudeRaw);
+      const gptParsed: unknown = JSON.parse(gptRaw);
+      if (!isReviewResult(claudeParsed) || !isReviewResult(gptParsed)) {
+        throw new Error("Review payload does not match the review schema.");
+      }
+      claude = claudeParsed;
+      gpt = gptParsed;
+    } catch {
+      logger.warn("consolidate.review_json_invalid", logContext);
+      return NextResponse.json(
+        { error: "Could not read the model reviews." },
+        { status: 400 },
+      );
+    }
+
     // Rebuild the same inputs the review used: pasted text and/or the re-sent
     // files for the job description, plus the CV document(s) — all parsed and
     // combined server-side.
@@ -130,19 +164,6 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: err.message }, { status: err.status });
       }
       throw err;
-    }
-
-    let claude: ReviewResult;
-    let gpt: ReviewResult;
-    try {
-      claude = JSON.parse(claudeRaw);
-      gpt = JSON.parse(gptRaw);
-    } catch {
-      logger.warn("consolidate.review_json_invalid", logContext);
-      return NextResponse.json(
-        { error: "Could not read the model reviews." },
-        { status: 400 },
-      );
     }
 
     const { system, user } = buildConsolidationPrompt(

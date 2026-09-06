@@ -18,6 +18,10 @@ export async function reviewWithGPT(
     model: GPT_MODEL,
     instructions: system,
     input: user,
+    reasoning: { effort: "high" },
+    // The UI promises the CV is not kept after the review; don't let OpenAI
+    // retain the request as stored response state either.
+    store: false,
     text: {
       format: {
         type: "json_schema",

@@ -14,6 +14,8 @@ import {
 } from "@/lib/budgets";
 import { UploadError, resolveCv, resolveJobDescription } from "@/lib/uploads";
 import {
+  RequestBodyError,
+  readRequestFormData,
   rejectCrossOrigin,
   rejectOversizedContentLength,
 } from "@/lib/request-security";
@@ -58,7 +60,7 @@ export async function POST(request: NextRequest) {
     if (crossOrigin) return crossOrigin;
 
     const model = request.nextUrl.searchParams.get("model");
-    if (!model || !(model in MODELS)) {
+    if (!model || !Object.hasOwn(MODELS, model)) {
       logger.warn("review.invalid_model", {
         ...logContext,
         model: model ?? "missing",
@@ -91,7 +93,19 @@ export async function POST(request: NextRequest) {
     if (oversized) return oversized;
 
     logger.debug("review.form_data.start", { ...logContext, model });
-    const formData = await request.formData();
+    let formData: FormData;
+    try {
+      formData = await readRequestFormData(
+        request,
+        MAX_REVIEW_REQUEST_BYTES,
+        logContext,
+      );
+    } catch (err) {
+      if (err instanceof RequestBodyError) {
+        return NextResponse.json({ error: err.message }, { status: err.status });
+      }
+      throw err;
+    }
     logger.debug("review.form_data.finish", { ...logContext, model });
 
     // Both sections accept one or more PDF/DOCX uploads (the job description may

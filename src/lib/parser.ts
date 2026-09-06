@@ -64,19 +64,31 @@ function assertDocxZipBudget(buffer: Buffer) {
       `DOCX file contains too many internal entries. Please keep it under ${MAX_DOCX_ENTRIES}.`,
     );
   }
-  if (
-    centralDirectoryOffset + centralDirectorySize > buffer.length ||
-    centralDirectoryOffset < 0
-  ) {
+  // The central directory must sit immediately before the end-of-central-
+  // directory record. Zip readers walk the directory by its byte range, so the
+  // declared entry count cannot be trusted on its own.
+  const centralDirectoryEnd = centralDirectoryOffset + centralDirectorySize;
+  if (centralDirectoryEnd !== eocdOffset) {
     throw new Error("Invalid DOCX file.");
   }
 
   let offset = centralDirectoryOffset;
+  let walkedEntries = 0;
   let uncompressedBytes = 0;
 
-  for (let entry = 0; entry < entryCount; entry += 1) {
-    if (offset + 46 > buffer.length || buffer.readUInt32LE(offset) !== 0x02014b50) {
+  while (offset < centralDirectoryEnd) {
+    if (
+      offset + 46 > centralDirectoryEnd ||
+      buffer.readUInt32LE(offset) !== 0x02014b50
+    ) {
       throw new Error("Invalid DOCX file.");
+    }
+
+    walkedEntries += 1;
+    if (walkedEntries > MAX_DOCX_ENTRIES) {
+      throw new Error(
+        `DOCX file contains too many internal entries. Please keep it under ${MAX_DOCX_ENTRIES}.`,
+      );
     }
 
     uncompressedBytes += buffer.readUInt32LE(offset + 24);
@@ -92,6 +104,10 @@ function assertDocxZipBudget(buffer: Buffer) {
     const extraLength = buffer.readUInt16LE(offset + 30);
     const commentLength = buffer.readUInt16LE(offset + 32);
     offset += 46 + filenameLength + extraLength + commentLength;
+  }
+
+  if (offset !== centralDirectoryEnd || walkedEntries !== entryCount) {
+    throw new Error("Invalid DOCX file.");
   }
 }
 
@@ -127,7 +143,13 @@ export async function extractText(
       }
 
       const result = await withTimeout(
-        pdf.getText({ first: MAX_PDF_PAGES, parseHyperlinks: false }),
+        // pageJoiner "" stops pdf-parse inserting "-- 1 of 1 --" separators, so
+        // a blank PDF yields empty text instead of a fake page marker.
+        pdf.getText({
+          first: MAX_PDF_PAGES,
+          parseHyperlinks: false,
+          pageJoiner: "",
+        }),
         PARSER_TIMEOUT_MS,
       );
       assertExtractedTextBudget(result.text, label, maxChars);

@@ -105,3 +105,64 @@ export const reviewJsonSchema = {
   ],
   additionalProperties: false,
 };
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Structural check for a review coming back from the client. The consolidate
+ * route re-reads both reviews from the request body, so the shape has to be
+ * verified before any field is used.
+ */
+export function isReviewResult(value: unknown): value is ReviewResult {
+  if (!isRecord(value)) return false;
+  const {
+    match_score,
+    match_summary,
+    keywords,
+    experience_alignment,
+    skills_gap,
+    formatting,
+    section_completeness,
+    suggestions,
+  } = value;
+
+  return (
+    isFiniteNumber(match_score) &&
+    typeof match_summary === "string" &&
+    isRecord(keywords) &&
+    isStringArray(keywords.present) &&
+    isStringArray(keywords.missing) &&
+    Array.isArray(keywords.semantic) &&
+    keywords.semantic.every(
+      (entry) =>
+        isRecord(entry) &&
+        typeof entry.term === "string" &&
+        typeof entry.match === "string",
+    ) &&
+    isRecord(experience_alignment) &&
+    isFiniteNumber(experience_alignment.score) &&
+    typeof experience_alignment.explanation === "string" &&
+    isRecord(skills_gap) &&
+    isFiniteNumber(skills_gap.score) &&
+    isStringArray(skills_gap.present) &&
+    isStringArray(skills_gap.missing) &&
+    isRecord(formatting) &&
+    isFiniteNumber(formatting.score) &&
+    isStringArray(formatting.issues) &&
+    isRecord(section_completeness) &&
+    isFiniteNumber(section_completeness.score) &&
+    isStringArray(section_completeness.present) &&
+    isStringArray(section_completeness.missing) &&
+    isStringArray(suggestions)
+  );
+}

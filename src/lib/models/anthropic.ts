@@ -1,8 +1,9 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { type ReviewResult, reviewJsonSchema } from "../schema";
 import { type ConsolidationPlan, consolidationJsonSchema } from "../consolidator";
+import { logger } from "../logger";
 
-export const CLAUDE_MODEL = "claude-opus-4-8";
+export const CLAUDE_MODEL = "claude-opus-5";
 
 let client: Anthropic | null = null;
 
@@ -14,6 +15,7 @@ function anthropicClient() {
 /**
  * Generous output ceiling. The reviews are a few thousand tokens at most, but
  * a tight cap silently truncates the JSON mid-object on keyword-heavy CVs.
+ * On Claude Opus 5 thinking is on by default and counts against this cap too.
  * Outputs this large require streaming, so the call below streams and then
  * collects the final message.
  */
@@ -25,9 +27,14 @@ async function runJsonSchema<T>(
   user: string,
   schema: Record<string, unknown>,
 ): Promise<T> {
-  const stream = anthropicClient().messages.stream({
+  // Claude Opus 5 can decline a request on safety grounds (stop_reason
+  // "refusal"). `fallbacks: "default"` re-runs a declined request server-side
+  // on Anthropic's recommended substitute model instead of failing the review.
+  const stream = anthropicClient().beta.messages.stream({
     model: CLAUDE_MODEL,
     max_tokens: MAX_OUTPUT_TOKENS,
+    betas: ["server-side-fallback-2026-07-01"],
+    fallbacks: "default",
     thinking: { type: "adaptive" },
     system,
     messages: [{ role: "user", content: user }],
@@ -41,7 +48,20 @@ async function runJsonSchema<T>(
 
   const response = await stream.finalMessage();
 
+  if (response.model !== CLAUDE_MODEL) {
+    logger.info("claude.fallback_served", {
+      requestedModel: CLAUDE_MODEL,
+      servedModel: response.model,
+    });
+  }
+
   if (response.stop_reason === "refusal") {
+    const category = response.stop_details?.category;
+    logger.warn("claude.refusal", {
+      model: response.model,
+      category: category ?? "unknown",
+      explanation: response.stop_details?.explanation ?? null,
+    });
     throw new Error("Claude declined to review this content.");
   }
   if (response.stop_reason === "max_tokens") {

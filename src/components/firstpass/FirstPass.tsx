@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   MODELS,
   emptyResult,
@@ -45,6 +45,9 @@ export function FirstPass() {
   // The consolidation lead — one honest plan built from both reviews.
   const [consolidation, setConsolidation] =
     useState<ConsolidationState>(emptyConsolidation);
+  // Identifies the current review run so a consolidation response from an
+  // earlier run can't overwrite a newer one after "New review".
+  const runIdRef = useRef(0);
 
   // Restore an existing session so a refresh doesn't force re-login.
   useEffect(() => {
@@ -91,6 +94,7 @@ export function FirstPass() {
     });
     setConsolidation(emptyConsolidation);
     setPhase("analyzing");
+    const runId = ++runIdRef.current;
 
     const fetchModel = async (model: ModelKey): Promise<FetchOutcome> => {
       const body = new FormData();
@@ -148,19 +152,22 @@ export function FirstPass() {
       fetch("/api/consolidate", { method: "POST", body })
         .then(async (res) => {
           const json = await res.json().catch(() => ({}));
+          if (runIdRef.current !== runId) return;
           setConsolidation({
             data: res.ok ? (json.data ?? null) : null,
             error: res.ok ? (json.error ?? null) : json.error || "Couldn’t summarise.",
             loading: false,
           });
         })
-        .catch(() =>
-          setConsolidation({ data: null, error: "Couldn’t summarise.", loading: false }),
-        );
+        .catch(() => {
+          if (runIdRef.current !== runId) return;
+          setConsolidation({ data: null, error: "Couldn’t summarise.", loading: false });
+        });
     }
   }, [cvFiles, jobDescription, jobFiles]);
 
   const handleReset = useCallback(() => {
+    runIdRef.current += 1;
     setResults({ claude: emptyResult, gpt: emptyResult });
     setConsolidation(emptyConsolidation);
     setPhase("input");

@@ -14,10 +14,11 @@ type AttemptRecord = {
 const attempts = new Map<string, AttemptRecord>();
 
 function clientKey(request: NextRequest): string {
+  // Keyed on the client address only. Anything the client controls (such as
+  // User-Agent) must stay out of the key, or rotating it resets the throttle.
   const forwardedFor = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
   const realIp = request.headers.get("x-real-ip")?.trim();
-  const userAgent = request.headers.get("user-agent")?.trim() || "unknown-agent";
-  return `${forwardedFor || realIp || "unknown-ip"}:${userAgent}`;
+  return forwardedFor || realIp || "unknown-ip";
 }
 
 function freshRecord(now: number): AttemptRecord {
