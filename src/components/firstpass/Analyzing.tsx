@@ -1,5 +1,17 @@
+import type { ReviewStage } from "@/lib/review-stream";
 import type { ModelKey } from "./types";
 import { Brand } from "./ui";
+
+const STAGE_LABEL: Record<ReviewStage, string> = {
+  match_score: "Scoring overall fit",
+  match_summary: "Summarising overall fit",
+  keywords: "Matching keywords",
+  experience_alignment: "Checking experience",
+  skills_gap: "Comparing skills",
+  formatting: "Checking formatting",
+  section_completeness: "Checking sections",
+  suggestions: "Writing suggestions",
+};
 
 function Bar({ w, h = "h-4", className = "" }: { w: string; h?: string; className?: string }) {
   return <div className={`${h} ${w} rounded-md bg-line ${className}`} />;
@@ -12,14 +24,16 @@ function Bar({ w, h = "h-4", className = "" }: { w: string; h?: string; classNam
  * real panes so nothing jumps when the reviews land. The two pulsing dots honestly
  * signal "both screeners are working".
  */
-function SkeletonColumn({ model }: { model: ModelKey }) {
+function SkeletonColumn({ model, stage }: { model: ModelKey; stage?: ReviewStage }) {
   const dot = model === "claude" ? "bg-claude" : "bg-gpt";
   return (
     <div className="flex flex-col overflow-hidden rounded-2xl border border-line bg-surface md:min-h-0 md:flex-1">
       <div className="flex items-center justify-between border-b border-line px-6 pb-[14px] pt-[18px]">
         <span className="flex items-center gap-[9px]">
           <span className={`h-2 w-2 animate-pulse motion-reduce:animate-none rounded-full ${dot}`} />
-          <Bar w="w-16" h="h-[18px]" />
+          <span role="status" aria-label={`${model} review stage`} className="text-[0.78rem] font-medium text-ink-45">
+            {stage ? STAGE_LABEL[stage] : "Reading your CV"}
+          </span>
         </span>
         <Bar w="w-9" h="h-7" />
       </div>
@@ -49,7 +63,7 @@ function SkeletonColumn({ model }: { model: ModelKey }) {
   );
 }
 
-export function Analyzing({ fileName }: { fileName: string }) {
+export function Analyzing({ fileName, stages }: { fileName: string; stages: Partial<Record<ModelKey, ReviewStage>> }) {
   return (
     <div className="fp-fade flex min-h-screen flex-col md:h-screen md:overflow-hidden">
       <header className="relative mx-auto flex w-full max-w-[1200px] items-center justify-between px-7 py-5">
@@ -69,8 +83,8 @@ export function Analyzing({ fileName }: { fileName: string }) {
         </p>
 
         <div className="flex flex-col gap-5 md:min-h-0 md:flex-1 md:flex-row">
-          <SkeletonColumn model="claude" />
-          <SkeletonColumn model="gpt" />
+          <SkeletonColumn model="claude" stage={stages.claude} />
+          <SkeletonColumn model="gpt" stage={stages.gpt} />
         </div>
       </main>
     </div>

@@ -1,5 +1,7 @@
 import OpenAI from "openai";
-import { type ReviewResult, reviewJsonSchema } from "../schema";
+import { type ReviewResult, reviewJsonSchema, isReviewResult } from "../schema";
+import type { ReviewOptions } from "../review-stream";
+import { logger } from "../logger";
 
 export const GPT_MODEL = "gpt-5.6-sol";
 
@@ -12,13 +14,14 @@ function openAIClient() {
 
 export async function reviewWithGPT(
   system: string,
-  user: string
+  user: string,
+  { effort = "thorough", onText, signal }: ReviewOptions = {},
 ): Promise<ReviewResult> {
-  const response = await openAIClient().responses.create({
+  const stream = openAIClient().responses.stream({
     model: GPT_MODEL,
     instructions: system,
     input: user,
-    reasoning: { effort: "high" },
+    reasoning: { effort: effort === "quick" ? "low" : "high" },
     // The UI promises the CV is not kept after the review; don't let OpenAI
     // retain the request as stored response state either.
     store: false,
@@ -30,7 +33,9 @@ export async function reviewWithGPT(
         schema: reviewJsonSchema,
       },
     },
-  });
+  }, { signal });
+  if (onText) stream.on("response.output_text.delta", (event) => onText(event.delta));
+  const response = await stream.finalResponse();
 
   if (response.status === "incomplete") {
     throw new Error(
@@ -43,5 +48,16 @@ export async function reviewWithGPT(
     throw new Error("GPT returned an empty response.");
   }
 
-  return JSON.parse(text) as ReviewResult;
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    logger.warn("gpt.invalid_json", { model: GPT_MODEL });
+    throw new Error("GPT returned invalid JSON.");
+  }
+  if (!isReviewResult(data)) {
+    logger.warn("gpt.unexpected_response_shape", { model: GPT_MODEL });
+    throw new Error("GPT returned an unexpected response shape.");
+  }
+  return data;
 }

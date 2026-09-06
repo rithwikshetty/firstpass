@@ -1,6 +1,11 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { type ReviewResult, reviewJsonSchema } from "../schema";
-import { type ConsolidationPlan, consolidationJsonSchema } from "../consolidator";
+import { type ReviewResult, reviewJsonSchema, isReviewResult } from "../schema";
+import {
+  type ConsolidationPlan,
+  consolidationJsonSchema,
+  isConsolidationPlan,
+} from "../consolidator";
+import type { ReviewOptions } from "../review-stream";
 import { logger } from "../logger";
 
 export const CLAUDE_MODEL = "claude-opus-5";
@@ -26,6 +31,8 @@ async function runJsonSchema<T>(
   system: string,
   user: string,
   schema: Record<string, unknown>,
+  isValid: (value: unknown) => value is T,
+  { effort = "thorough", onText, signal }: ReviewOptions,
 ): Promise<T> {
   // Claude Opus 5 can decline a request on safety grounds (stop_reason
   // "refusal"). `fallbacks: "default"` re-runs a declined request server-side
@@ -39,12 +46,14 @@ async function runJsonSchema<T>(
     system,
     messages: [{ role: "user", content: user }],
     output_config: {
+      effort: effort === "quick" ? "low" : "high",
       format: {
         type: "json_schema",
         schema,
       },
     },
-  });
+  }, { signal });
+  if (onText) stream.on("text", onText);
 
   const response = await stream.finalMessage();
 
@@ -82,19 +91,34 @@ async function runJsonSchema<T>(
     throw new Error("Claude returned an empty response.");
   }
 
-  return JSON.parse(text) as T;
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    logger.warn("claude.invalid_json", { model: response.model });
+    throw new Error("Claude returned invalid JSON.");
+  }
+  if (!isValid(data)) {
+    logger.warn("claude.unexpected_response_shape", { model: response.model });
+    throw new Error("Claude returned an unexpected response shape.");
+  }
+  return data;
 }
 
 export function reviewWithClaude(
   system: string,
   user: string,
+  options: ReviewOptions = {},
 ): Promise<ReviewResult> {
-  return runJsonSchema<ReviewResult>(system, user, reviewJsonSchema);
+  return runJsonSchema(system, user, reviewJsonSchema, isReviewResult, options);
 }
 
 export function consolidateWithClaude(
   system: string,
   user: string,
+  options: ReviewOptions = {},
 ): Promise<ConsolidationPlan> {
-  return runJsonSchema<ConsolidationPlan>(system, user, consolidationJsonSchema);
+  return runJsonSchema(
+    system, user, consolidationJsonSchema, isConsolidationPlan, options,
+  );
 }

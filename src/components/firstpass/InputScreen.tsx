@@ -1,3 +1,4 @@
+import type { ReviewEffort } from "@/lib/review-stream";
 import { FileUpload } from "./FileUpload";
 import { Brand } from "./ui";
 import { FileIcon, JobIcon, SearchIcon } from "./ui";
@@ -10,6 +11,8 @@ interface InputScreenProps {
   onJobDescriptionChange: (value: string) => void;
   jobFiles: File[];
   onJobFilesChange: (files: File[]) => void;
+  effort: ReviewEffort;
+  onEffortChange: (effort: ReviewEffort) => void;
   onReview: () => void;
 }
 
@@ -23,6 +26,8 @@ export function InputScreen({
   onJobDescriptionChange,
   jobFiles,
   onJobFilesChange,
+  effort,
+  onEffortChange,
   onReview,
 }: InputScreenProps) {
   const ready =
@@ -85,6 +90,25 @@ export function InputScreen({
           />
         </div>
 
+        <div className="mb-5">
+          <div role="group" aria-label="Review effort" className="flex rounded-[11px] border border-line bg-surface p-1">
+            {(["quick", "thorough"] as const).map((option) => (
+              <button
+                key={option}
+                type="button"
+                aria-pressed={effort === option}
+                onClick={() => onEffortChange(option)}
+                className={`flex-1 rounded-lg px-4 py-2 text-[0.82rem] font-semibold transition-colors ${effort === option ? "bg-ink text-canvas" : "text-ink-45 hover:text-ink-70"}`}
+              >
+                {option === "quick" ? "Quick" : "Thorough"}
+              </button>
+            ))}
+          </div>
+          <p className="mt-2 text-center text-[0.75rem] text-ink-45">
+            Quick is faster and cheaper; Thorough reads more carefully.
+          </p>
+        </div>
+
         <button
           type="button"
           className="flex w-full items-center justify-center gap-[9px] rounded-[11px] bg-ink px-5 py-[15px] text-[0.96rem] font-semibold text-canvas transition-[opacity,transform] hover:-translate-y-px hover:opacity-90 disabled:translate-y-0 disabled:opacity-30"
@@ -94,7 +118,7 @@ export function InputScreen({
           <SearchIcon /> Review my CV
         </button>
         <p className="mt-[18px] text-center text-[0.8rem] text-ink-45">
-          Takes about 5 seconds · your CV isn&apos;t stored after the review
+          Your CV isn&apos;t stored after the review
         </p>
       </div>
     </div>

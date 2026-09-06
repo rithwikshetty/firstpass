@@ -32,6 +32,33 @@ export interface ConsolidationPlan {
   honest_caveat: string | null;
 }
 
+export function isConsolidationPlan(value: unknown): value is ConsolidationPlan {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const plan = value as Record<string, unknown>;
+  const consensus = plan.consensus;
+  return (
+    typeof plan.headline_verdict === "string" &&
+    typeof consensus === "object" &&
+    consensus !== null &&
+    !Array.isArray(consensus) &&
+    "scores" in consensus &&
+    typeof consensus.scores === "string" &&
+    "agreement_note" in consensus &&
+    typeof consensus.agreement_note === "string" &&
+    Array.isArray(plan.lead_with) &&
+    plan.lead_with.every((item) => typeof item === "string") &&
+    Array.isArray(plan.fix_first) &&
+    plan.fix_first.every((item) =>
+      typeof item === "object" && item !== null && !Array.isArray(item) &&
+      typeof item.action === "string" &&
+      ["reframe", "add_if_true", "format", "redirect"].includes(item.type) &&
+      typeof item.grounding === "string" &&
+      ["both", "claude", "gpt"].includes(item.source)
+    ) &&
+    (plan.honest_caveat === null || typeof plan.honest_caveat === "string")
+  );
+}
+
 export const consolidationJsonSchema = {
   type: "object",
   properties: {

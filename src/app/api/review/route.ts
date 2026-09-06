@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { buildRubricPrompt } from "@/lib/rubric";
-import { CLAUDE_MODEL, reviewWithClaude } from "@/lib/models/anthropic";
+import { CLAUDE_MODEL, reviewWithClaude, consolidateWithClaude } from "@/lib/models/anthropic";
 import { GPT_MODEL, reviewWithGPT } from "@/lib/models/openai";
+import { buildConsolidationPrompt } from "@/lib/consolidator";
+import { reviewJsonSchema } from "@/lib/schema";
+import type { ReviewEffort, ReviewEvent, ReviewStage } from "@/lib/review-stream";
 import { SESSION_COOKIE, isAuthorized } from "@/lib/auth";
 import {
   BudgetError,
@@ -23,6 +26,7 @@ import { elapsedMs, logger, serializeError } from "@/lib/logger";
 import { withRequestLogging } from "@/lib/route-logging";
 
 export const runtime = "nodejs";
+export const maxDuration = 120;
 
 const MODELS = {
   claude: {
@@ -59,30 +63,19 @@ export async function POST(request: NextRequest) {
     const crossOrigin = rejectCrossOrigin(request, logContext);
     if (crossOrigin) return crossOrigin;
 
-    const model = request.nextUrl.searchParams.get("model");
-    if (!model || !Object.hasOwn(MODELS, model)) {
-      logger.warn("review.invalid_model", {
-        ...logContext,
-        model: model ?? "missing",
-      });
-      return NextResponse.json(
-        { error: "Invalid model. Use ?model=claude|gpt" },
-        { status: 400 },
-      );
-    }
-    const { run, keyEnv, label, modelId } = MODELS[model as ModelName];
-
-    if (!process.env[keyEnv]) {
-      logger.error("review.provider_not_configured", {
-        ...logContext,
-        model,
-        provider: label,
-        keyEnv,
-      });
-      return NextResponse.json(
-        { error: `${label} API key is not configured on the server.` },
-        { status: 500 },
-      );
+    for (const [model, { keyEnv, label }] of Object.entries(MODELS)) {
+      if (!process.env[keyEnv]) {
+        logger.error("review.provider_not_configured", {
+          ...logContext,
+          model,
+          provider: label,
+          keyEnv,
+        });
+        return NextResponse.json(
+          { error: `${label} API key is not configured on the server.` },
+          { status: 500 },
+        );
+      }
     }
 
     const oversized = rejectOversizedContentLength(
@@ -92,7 +85,7 @@ export async function POST(request: NextRequest) {
     );
     if (oversized) return oversized;
 
-    logger.debug("review.form_data.start", { ...logContext, model });
+    logger.debug("review.form_data.start", logContext);
     let formData: FormData;
     try {
       formData = await readRequestFormData(
@@ -106,14 +99,24 @@ export async function POST(request: NextRequest) {
       }
       throw err;
     }
-    logger.debug("review.form_data.finish", { ...logContext, model });
+    logger.debug("review.form_data.finish", logContext);
+
+    const effortValue = formData.get("effort") ?? "thorough";
+    if (effortValue !== "quick" && effortValue !== "thorough") {
+      logger.warn("review.invalid_effort", logContext);
+      return NextResponse.json(
+        { error: 'Invalid effort. Use "quick" or "thorough".' },
+        { status: 400 },
+      );
+    }
+    const effort: ReviewEffort = effortValue;
 
     // Both sections accept one or more PDF/DOCX uploads (the job description may
     // also be pasted). Each file is parsed server-side and combined. Resolve the
     // job description first so we never parse the CV for an already-invalid request.
     let jobDescription: string;
     let cvText: string;
-    const uploadLogContext = { ...logContext, workflow: "review", model };
+    const uploadLogContext = { ...logContext, workflow: "review" };
     try {
       jobDescription = await resolveJobDescription(formData, uploadLogContext);
       cvText = await resolveCv(formData, uploadLogContext);
@@ -121,7 +124,6 @@ export async function POST(request: NextRequest) {
       if (err instanceof UploadError) {
         logger.warn("review.upload_rejected", {
           ...logContext,
-          model,
           status: err.status,
           errorName: err.name,
         });
@@ -135,7 +137,6 @@ export async function POST(request: NextRequest) {
       estimateTokenCount(system) + estimateTokenCount(user);
     logger.debug("review.prompt_built", {
       ...logContext,
-      model,
       cvChars: cvText.length,
       jobDescriptionChars: jobDescription.length,
       systemChars: system.length,
@@ -148,7 +149,6 @@ export async function POST(request: NextRequest) {
       if (err instanceof BudgetError) {
         logger.warn("review.prompt_rejected", {
           ...logContext,
-          model,
           status: err.status,
           estimatedPromptTokens,
         });
@@ -157,41 +157,143 @@ export async function POST(request: NextRequest) {
       throw err;
     }
 
-    // Model failures are returned as 200 with an `error` so the client can show a
-    // per-model error while the other model's result still renders.
-    const modelStartedAt = Date.now();
-    logger.info("review.model.start", {
-      ...logContext,
-      model,
-      modelId,
-      provider: label,
-      estimatedPromptTokens,
+    const cancellation = new AbortController();
+    const signal = AbortSignal.any([request.signal, cancellation.signal]);
+    const encoder = new TextEncoder();
+    let cancelled = false;
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        let closed = false;
+        let lastSentAt = Date.now();
+        const send = (event: ReviewEvent) => {
+          if (closed || signal.aborted) return;
+          controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+          lastSentAt = Date.now();
+        };
+        const heartbeat = setInterval(() => {
+          if (Date.now() - lastSentAt >= 15_000) send({ type: "ping" });
+        }, 1_000);
+        const close = () => {
+          clearInterval(heartbeat);
+          signal.removeEventListener("abort", close);
+          if (!closed) {
+            closed = true;
+            if (!cancelled) controller.close();
+          }
+        };
+        signal.addEventListener("abort", close, { once: true });
+        if (signal.aborted) {
+          close();
+          return;
+        }
+
+        const runModel = async (model: ModelName) => {
+          const { run, label, modelId } = MODELS[model];
+          const modelStartedAt = Date.now();
+          const modelContext = { ...logContext, model, modelId, provider: label };
+          logger.info("review.model.start", { ...modelContext, estimatedPromptTokens });
+          let text = "";
+          let stage: ReviewStage | undefined;
+          const onText = (delta: string) => {
+            text += delta;
+            let lastIndex = -1;
+            let nextStage = stage;
+            for (const key of Object.keys(reviewJsonSchema.properties) as ReviewStage[]) {
+              const index = text.lastIndexOf(`"${key}"`);
+              if (index > lastIndex) {
+                lastIndex = index;
+                nextStage = key;
+              }
+            }
+            if (nextStage && nextStage !== stage) {
+              stage = nextStage;
+              send({ type: "stage", model, stage });
+            }
+          };
+          try {
+            const data = await run(system, user, { effort, onText, signal });
+            logger.info("review.model.finish", {
+              ...modelContext,
+              durationMs: elapsedMs(modelStartedAt),
+              matchScore: Math.round(data.match_score),
+              suggestionsCount: data.suggestions.length,
+              presentKeywordCount: data.keywords.present.length,
+              missingKeywordCount: data.keywords.missing.length,
+            });
+            send({ type: "review", model, data });
+            return data;
+          } catch (err) {
+            if (signal.aborted) {
+              logger.info("review.model.cancelled", {
+                ...modelContext,
+                durationMs: elapsedMs(modelStartedAt),
+              });
+              return null;
+            }
+            logger.error("review.model.failed", {
+              ...modelContext,
+              durationMs: elapsedMs(modelStartedAt),
+              error: serializeError(err),
+            });
+            send({ type: "review", model, error: err instanceof Error ? err.message : "Unknown error" });
+            return null;
+          }
+        };
+
+        try {
+          const [claude, gpt] = await Promise.all([runModel("claude"), runModel("gpt")]);
+          if (claude && gpt && !signal.aborted) {
+            const modelStartedAt = Date.now();
+            const modelContext = { ...logContext, provider: "Claude", modelId: CLAUDE_MODEL };
+            try {
+              const prompt = buildConsolidationPrompt(cvText, jobDescription, claude, gpt);
+              assertPromptBudget(prompt.system, prompt.user);
+              logger.info("consolidate.model.start", {
+                ...modelContext,
+                estimatedPromptTokens: estimateTokenCount(prompt.system) + estimateTokenCount(prompt.user),
+              });
+              const data = await consolidateWithClaude(prompt.system, prompt.user, { effort, signal });
+              // The two scores are facts, not a model judgement — set them deterministically
+              // from the reviews so the lead can never disagree with the columns below.
+              data.consensus.scores = `Claude ${Math.round(claude.match_score)} · GPT ${Math.round(gpt.match_score)}`;
+              // The schema can't cap lead_with (maxItems unsupported), so cap it here.
+              data.lead_with = data.lead_with.slice(0, 3);
+              logger.info("consolidate.model.finish", {
+                ...modelContext,
+                durationMs: elapsedMs(modelStartedAt),
+                fixFirstCount: data.fix_first.length,
+                leadWithCount: data.lead_with.length,
+                hasHonestCaveat: Boolean(data.honest_caveat),
+              });
+              send({ type: "consolidation", data });
+            } catch (err) {
+              if (signal.aborted) {
+                logger.info("consolidate.model.cancelled", {
+                  ...modelContext,
+                  durationMs: elapsedMs(modelStartedAt),
+                });
+                return;
+              }
+              logger.error("consolidate.model.failed", {
+                ...modelContext,
+                durationMs: elapsedMs(modelStartedAt),
+                error: serializeError(err),
+              });
+              send({ type: "consolidation", error: err instanceof Error ? err.message : "Unknown error" });
+            }
+          }
+          send({ type: "done" });
+        } finally {
+          close();
+        }
+      },
+      cancel() {
+        cancelled = true;
+        cancellation.abort();
+      },
     });
-    try {
-      const data = await run(system, user);
-      logger.info("review.model.finish", {
-        ...logContext,
-        model,
-        modelId,
-        provider: label,
-        durationMs: elapsedMs(modelStartedAt),
-        matchScore: Math.round(data.match_score),
-        suggestionsCount: data.suggestions.length,
-        presentKeywordCount: data.keywords.present.length,
-        missingKeywordCount: data.keywords.missing.length,
-      });
-      return NextResponse.json({ data, error: null });
-    } catch (err) {
-      logger.error("review.model.failed", {
-        ...logContext,
-        model,
-        modelId,
-        provider: label,
-        durationMs: elapsedMs(modelStartedAt),
-        error: serializeError(err),
-      });
-      const msg = err instanceof Error ? err.message : "Unknown error";
-      return NextResponse.json({ data: null, error: msg }, { status: 200 });
-    }
+    return new Response(stream, {
+      headers: { "Content-Type": "application/x-ndjson", "Cache-Control": "no-store" },
+    });
   });
 }

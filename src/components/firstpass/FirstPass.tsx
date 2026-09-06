@@ -10,18 +10,13 @@ import {
   type ConsolidationState,
   type Screen,
 } from "./types";
+import type { ReviewEffort, ReviewEvent, ReviewStage } from "@/lib/review-stream";
 import { Gate } from "./Gate";
 import { InputScreen } from "./InputScreen";
 import { Analyzing } from "./Analyzing";
 import { Results } from "./Results";
 
 type Phase = "booting" | "gate" | Screen;
-
-interface FetchOutcome {
-  status: number;
-  data: ModelResult["data"];
-  error: string | null;
-}
 
 export function FirstPass() {
   const [phase, setPhase] = useState<Phase>("booting");
@@ -35,6 +30,8 @@ export function FirstPass() {
   const [cvFiles, setCvFiles] = useState<File[]>([]);
   const [jobDescription, setJobDescription] = useState("");
   const [jobFiles, setJobFiles] = useState<File[]>([]);
+  const [effort, setEffort] = useState<ReviewEffort>("thorough");
+  const [stages, setStages] = useState<Partial<Record<ModelKey, ReviewStage>>>({});
 
   // Results
   const [results, setResults] = useState<Record<ModelKey, ModelResult>>({
@@ -45,9 +42,7 @@ export function FirstPass() {
   // The consolidation lead — one honest plan built from both reviews.
   const [consolidation, setConsolidation] =
     useState<ConsolidationState>(emptyConsolidation);
-  // Identifies the current review run so a consolidation response from an
-  // earlier run can't overwrite a newer one after "New review".
-  const runIdRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
 
   // Restore an existing session so a refresh doesn't force re-login.
   useEffect(() => {
@@ -58,6 +53,7 @@ export function FirstPass() {
       .catch(() => active && setPhase("gate"));
     return () => {
       active = false;
+      abortRef.current?.abort();
     };
   }, []);
 
@@ -92,82 +88,108 @@ export function FirstPass() {
       claude: { data: null, error: null, loading: true },
       gpt: { data: null, error: null, loading: true },
     });
-    setConsolidation(emptyConsolidation);
+    setConsolidation({ data: null, error: null, loading: true });
+    setStages({});
     setPhase("analyzing");
-    const runId = ++runIdRef.current;
+    abortRef.current?.abort();
+    const abort = new AbortController();
+    abortRef.current = abort;
+    const received = new Set<ModelKey>();
+    let finished = false;
 
-    const fetchModel = async (model: ModelKey): Promise<FetchOutcome> => {
-      const body = new FormData();
-      cvFiles.forEach((cvFile) => body.append("cv", cvFile));
-      body.append("jobDescription", jobDescription);
-      jobFiles.forEach((jobFile) => body.append("jobFile", jobFile));
-
-      try {
-        const res = await fetch(`/api/review?model=${model}`, {
-          method: "POST",
-          body,
-        });
-        const json = await res.json().catch(() => ({}));
-        const outcome: FetchOutcome = res.ok
-          ? { status: res.status, data: json.data ?? null, error: json.error ?? null }
-          : { status: res.status, data: null, error: json.error || "Request failed." };
-        setResults((prev) => ({
-          ...prev,
-          [model]: { data: outcome.data, error: outcome.error, loading: false },
-        }));
-        return outcome;
-      } catch {
-        const outcome: FetchOutcome = {
-          status: 0,
-          data: null,
-          error: "Network error.",
-        };
-        setResults((prev) => ({ ...prev, [model]: { ...outcome, loading: false } }));
-        return outcome;
+    const dispatch = (event: ReviewEvent) => {
+      switch (event.type) {
+        case "stage":
+          setStages((prev) => ({ ...prev, [event.model]: event.stage }));
+          break;
+        case "review":
+          received.add(event.model);
+          setResults((prev) => ({
+            ...prev,
+            [event.model]: {
+              data: "data" in event ? event.data : null,
+              error: "error" in event ? event.error : null,
+              loading: false,
+            },
+          }));
+          if (received.size === MODELS.length) setPhase("results");
+          break;
+        case "consolidation":
+          setConsolidation({
+            data: "data" in event ? event.data : null,
+            error: "error" in event ? event.error : null,
+            loading: false,
+          });
+          break;
+        case "done":
+          finished = true;
+          setConsolidation((prev) => ({ ...prev, loading: false }));
+          break;
+        case "ping":
+          break;
       }
     };
 
-    const outcomes = await Promise.all(MODELS.map(fetchModel));
+    const body = new FormData();
+    cvFiles.forEach((cvFile) => body.append("cv", cvFile));
+    body.append("jobDescription", jobDescription);
+    jobFiles.forEach((jobFile) => body.append("jobFile", jobFile));
+    body.append("effort", effort);
 
-    // If the session lapsed and nothing came back, send the user back to the gate.
-    if (outcomes.every((o) => o.status === 401)) {
-      setPhase("gate");
-      setAuthError("Session expired — please sign in again.");
-      return;
+    try {
+      const res = await fetch("/api/review", { method: "POST", body, signal: abort.signal });
+      if (abort.signal.aborted) return;
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        if (abort.signal.aborted) return;
+        if (res.status === 401) {
+          setPhase("gate");
+          setAuthError("Session expired — please sign in again.");
+          return;
+        }
+        throw new Error(json.error || "Request failed.");
+      }
+      if (!res.body) throw new Error("No review stream received.");
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let pending = "";
+      try {
+        while (!finished) {
+          const { value, done } = await reader.read();
+          if (abort.signal.aborted) return;
+          pending += done ? decoder.decode() : decoder.decode(value, { stream: true });
+          const lines = pending.split("\n");
+          pending = lines.pop() ?? "";
+          for (const line of lines) {
+            if (line.trim()) dispatch(JSON.parse(line) as ReviewEvent);
+          }
+          if (done) break;
+        }
+        if (!finished || received.size !== MODELS.length) {
+          throw new Error("The review connection ended early. Please try again.");
+        }
+      } finally {
+        await reader.cancel().catch(() => undefined);
+        reader.releaseLock();
+      }
+    } catch (err) {
+      if (abort.signal.aborted) return;
+      const error = err instanceof Error ? err.message : "Network error.";
+      setResults((prev) => ({
+        claude: received.has("claude") ? prev.claude : { data: null, error, loading: false },
+        gpt: received.has("gpt") ? prev.gpt : { data: null, error, loading: false },
+      }));
+      setPhase("results");
+    } finally {
+      if (!abort.signal.aborted) {
+        setConsolidation((prev) => ({ ...prev, loading: false }));
+      }
     }
-    setPhase("results");
-
-    // Both reviews are in — consolidate them into one honest action plan. This
-    // is a bonus lead layer (one Claude call, no re-screening); if it fails the
-    // two full reviews still render below, so we never block on it.
-    const [claudeOut, gptOut] = outcomes;
-    if (claudeOut?.data && gptOut?.data) {
-      setConsolidation({ data: null, error: null, loading: true });
-      const body = new FormData();
-      cvFiles.forEach((cvFile) => body.append("cv", cvFile));
-      body.append("jobDescription", jobDescription);
-      jobFiles.forEach((jobFile) => body.append("jobFile", jobFile));
-      body.append("claude", JSON.stringify(claudeOut.data));
-      body.append("gpt", JSON.stringify(gptOut.data));
-      fetch("/api/consolidate", { method: "POST", body })
-        .then(async (res) => {
-          const json = await res.json().catch(() => ({}));
-          if (runIdRef.current !== runId) return;
-          setConsolidation({
-            data: res.ok ? (json.data ?? null) : null,
-            error: res.ok ? (json.error ?? null) : json.error || "Couldn’t summarise.",
-            loading: false,
-          });
-        })
-        .catch(() => {
-          if (runIdRef.current !== runId) return;
-          setConsolidation({ data: null, error: "Couldn’t summarise.", loading: false });
-        });
-    }
-  }, [cvFiles, jobDescription, jobFiles]);
+  }, [cvFiles, jobDescription, jobFiles, effort]);
 
   const handleReset = useCallback(() => {
-    runIdRef.current += 1;
+    abortRef.current?.abort();
+    setStages({});
     setResults({ claude: emptyResult, gpt: emptyResult });
     setConsolidation(emptyConsolidation);
     setPhase("input");
@@ -199,7 +221,7 @@ export function FirstPass() {
   }
 
   if (phase === "analyzing") {
-    return <Analyzing fileName={cvLabel} />;
+    return <Analyzing fileName={cvLabel} stages={stages} />;
   }
 
   if (phase === "results") {
@@ -221,6 +243,8 @@ export function FirstPass() {
       onJobDescriptionChange={setJobDescription}
       jobFiles={jobFiles}
       onJobFilesChange={setJobFiles}
+      effort={effort}
+      onEffortChange={setEffort}
       onReview={handleReview}
     />
   );
