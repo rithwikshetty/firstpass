@@ -94,7 +94,7 @@ export function InputScreen({
           <SearchIcon /> Review my CV
         </button>
         <p className="mt-[18px] text-center text-[0.8rem] text-ink-45">
-          Takes about 5 seconds · your CV isn&apos;t stored after the review
+          Your CV isn&apos;t stored after the review
         </p>
       </div>
     </div>

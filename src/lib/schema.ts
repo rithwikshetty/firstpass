@@ -118,11 +118,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/**
- * Structural check for a review coming back from the client. The consolidate
- * route re-reads both reviews from the request body, so the shape has to be
- * verified before any field is used.
- */
 export function isReviewResult(value: unknown): value is ReviewResult {
   if (!isRecord(value)) return false;
   const {
